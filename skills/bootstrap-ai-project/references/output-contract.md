@@ -172,6 +172,10 @@ The compiler must stop on drift in a managed file or region.
 `--force-path <relative-path>` is an exact-path override, never an automatic or
 directory-wide repair strategy.
 
+If applying any managed write fails, the compiler must restore the file
+contents and modes captured before that compile attempt, keep the prior
+manifest, and report any rollback failure explicitly.
+
 ## Minimality Rules
 
 - Keep root managed instructions below 120 lines.

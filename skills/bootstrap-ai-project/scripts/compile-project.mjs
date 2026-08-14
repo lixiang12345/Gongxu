@@ -1,8 +1,17 @@
 #!/usr/bin/env node
 
-import { existsSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  lstatSync,
+  readFileSync,
+  readdirSync,
+  rmdirSync,
+  rmSync,
+  statSync,
+} from "node:fs";
 import { realpathSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import {
   extractManagedBlock,
   hashOwnedContent,
@@ -103,6 +112,106 @@ function currentOwnedHash(root, entry) {
     return { exists: true, hash: hashOwnedContent(content, entry.ownership), content, error: null };
   } catch (error) {
     return { exists: true, hash: null, content, error: error.message };
+  }
+}
+
+function snapshotFile(path) {
+  if (!existsSync(path)) return { exists: false, content: null, mode: null };
+  const metadata = lstatSync(path);
+  if (!metadata.isFile()) throw new Error(`Cannot snapshot a non-file managed path: ${path}`);
+  return {
+    exists: true,
+    content: readFileSync(path, "utf8"),
+    mode: metadata.mode & 0o7777,
+  };
+}
+
+function missingParentDirectories(root, path) {
+  const missing = [];
+  let directory = dirname(path);
+  while (directory !== root && !existsSync(directory)) {
+    missing.push(directory);
+    directory = dirname(directory);
+  }
+  return missing;
+}
+
+function restoreSnapshot(path, snapshot) {
+  if (!snapshot.exists) {
+    if (!existsSync(path)) return;
+    const metadata = lstatSync(path);
+    if (metadata.isDirectory()) throw new Error(`Refusing to remove a directory created at managed file path: ${path}`);
+    rmSync(path, { force: true });
+    return;
+  }
+
+  if (existsSync(path)) {
+    const metadata = lstatSync(path);
+    if (metadata.isFile() && readFileSync(path, "utf8") === snapshot.content) {
+      if ((metadata.mode & 0o7777) !== snapshot.mode) chmodSync(path, snapshot.mode);
+      return;
+    }
+    if (metadata.isDirectory()) throw new Error(`Refusing to replace a directory at managed file path: ${path}`);
+    rmSync(path, { force: true });
+  }
+  writeAtomic(path, snapshot.content, snapshot.mode);
+}
+
+function rollbackCompile(journal, createdDirectories) {
+  const errors = [];
+  for (const entry of [...journal].reverse()) {
+    try {
+      restoreSnapshot(entry.path, entry.snapshot);
+    } catch (error) {
+      errors.push(`${entry.path}: ${error.message}`);
+    }
+  }
+  for (const directory of [...createdDirectories].sort((a, b) => b.length - a.length)) {
+    try {
+      rmdirSync(directory);
+    } catch (error) {
+      if (!new Set(["ENOENT", "ENOTEMPTY", "EEXIST"]).has(error.code)) {
+        errors.push(`${directory}: ${error.message}`);
+      }
+    }
+  }
+  return errors;
+}
+
+function applyCompilePlan(root, actions, manifestContent) {
+  const operations = actions
+    .filter((action) => action.type !== "unchanged")
+    .map((action) => ({
+      path: action.path,
+      type: action.type === "delete" || (action.type === "remove-region" && action.content === "") ? "delete" : "write",
+      content: action.content,
+      mode: action.mode,
+    }));
+  const manifestPath = resolveInside(root, ".ai/manifest.json");
+  if (readTextIfExists(manifestPath) !== manifestContent) {
+    operations.push({ path: ".ai/manifest.json", type: "write", content: manifestContent, mode: 0o644 });
+  }
+
+  const journal = [];
+  const createdDirectories = new Set();
+  try {
+    for (const operation of operations) {
+      const absolute = resolveInside(root, operation.path);
+      const snapshot = snapshotFile(absolute);
+      journal.push({ path: absolute, snapshot });
+      if (operation.type === "delete") {
+        rmSync(absolute, { force: true });
+        continue;
+      }
+      for (const directory of missingParentDirectories(root, absolute)) createdDirectories.add(directory);
+      writeAtomic(absolute, operation.content, operation.mode);
+    }
+  } catch (error) {
+    const rollbackErrors = rollbackCompile(journal, createdDirectories);
+    const rollbackResult = rollbackErrors.length === 0
+      ? "All attempted file changes were rolled back."
+      : `Rollback was incomplete: ${rollbackErrors.join("; ")}`;
+    throw new Error(`${error.message} ${rollbackResult}`);
   }
 }
 
@@ -295,29 +404,9 @@ function main() {
   }
 
   try {
-    for (const action of plan.actions) {
-      if (action.type === "unchanged") continue;
-      const absolute = resolveInside(root, action.path);
-      if (action.type === "delete") {
-        rmSync(absolute, { force: true });
-        continue;
-      }
-      if (action.type === "remove-region" && action.content === "") {
-        rmSync(absolute, { force: true });
-        continue;
-      }
-      writeAtomic(absolute, action.content, action.mode);
-    }
+    applyCompilePlan(root, plan.actions, manifestContent);
   } catch (error) {
     process.stderr.write(`Cannot apply compile plan: ${error.message}\n`);
-    process.exit(1);
-  }
-
-  try {
-    const manifestPath = resolveInside(root, ".ai/manifest.json");
-    if (readTextIfExists(manifestPath) !== manifestContent) writeAtomic(manifestPath, manifestContent);
-  } catch (error) {
-    process.stderr.write(`Cannot write manifest: ${error.message}\n`);
     process.exit(1);
   }
 

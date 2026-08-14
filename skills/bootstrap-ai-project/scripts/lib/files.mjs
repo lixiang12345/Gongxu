@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, lstatSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, relative, resolve, sep } from "node:path";
 
 export const MANAGED_BEGIN = "<!-- gongxu:begin -->";
@@ -74,6 +74,11 @@ export function hashOwnedContent(content, ownership) {
 export function writeAtomic(path, content, mode = null) {
   mkdirSync(dirname(path), { recursive: true });
   const temporary = `${path}.gongxu-${randomUUID()}.tmp`;
-  writeFileSync(temporary, content, { encoding: "utf8", mode: mode ?? 0o644 });
-  renameSync(temporary, path);
+  try {
+    writeFileSync(temporary, content, { encoding: "utf8", mode: mode ?? 0o644 });
+    chmodSync(temporary, mode ?? 0o644);
+    renameSync(temporary, path);
+  } finally {
+    rmSync(temporary, { force: true });
+  }
 }

@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
 import {
   appendFileSync,
+  chmodSync,
   existsSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -116,6 +119,56 @@ test("managed drift requires an exact force path", (t) => {
   assert.equal(forced.status, 0, forced.stderr || forced.stdout);
   assert.ok(parseJsonOutput(forced).actions.some((action) => action.path === profilePath && action.forced));
   assert.equal(readFixtureFile(fixture, profilePath), original);
+});
+
+test("compiler rolls back earlier writes when a later managed write fails", (t) => {
+  if (process.platform === "win32" || process.getuid?.() === 0) {
+    t.skip("permission failure injection requires a non-root POSIX process");
+    return;
+  }
+  const { fixture } = initialize(t);
+  const agentsPath = join(fixture.root, "AGENTS.md");
+  chmodSync(agentsPath, 0o764);
+  const preservedPaths = [
+    ".ai/blueprint.json",
+    ".ai/project/profile.md",
+    ".ai/manifest.json",
+    "AGENTS.md",
+    ".ai/skills/change-workspace-feature/SKILL.md",
+    ".agents/skills/gongxu-change-workspace-feature/SKILL.md",
+    ".claude/skills/gongxu-change-workspace-feature/SKILL.md",
+  ];
+  const before = new Map(preservedPaths.map((path) => [path, readFixtureFile(fixture, path)]));
+  const updated = loadBlueprint();
+  updated.project.summary = "A summary that would update an early generated view.";
+  updated.skills[0].id = "change-workspace-feature-v2";
+  const updatedPath = writeBlueprint(fixture, updated, "rollback-blueprint.json");
+  const blockedDirectory = join(fixture.root, ".claude/skills");
+  const originalMode = statSync(blockedDirectory).mode & 0o7777;
+
+  chmodSync(blockedDirectory, 0o555);
+  let result;
+  try {
+    result = compileFixture(fixture, updatedPath);
+  } finally {
+    chmodSync(blockedDirectory, originalMode);
+  }
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /All attempted file changes were rolled back/);
+  for (const path of preservedPaths) assert.equal(readFixtureFile(fixture, path), before.get(path), path);
+  assert.equal(statSync(agentsPath).mode & 0o7777, 0o764);
+  for (const path of [
+    ".ai/skills/change-workspace-feature-v2",
+    ".agents/skills/gongxu-change-workspace-feature-v2",
+    ".claude/skills/gongxu-change-workspace-feature-v2",
+  ]) {
+    assert.equal(existsSync(join(fixture.root, path)), false, path);
+  }
+  assert.equal(readdirSync(blockedDirectory).some((name) => name.endsWith(".tmp")), false);
+
+  const validation = runNode(validateScript, [fixture.root]);
+  assert.equal(validation.status, 0, validation.stderr || validation.stdout);
 });
 
 test("compiler removes obsolete generated artifacts while retaining Claude user content", (t) => {
