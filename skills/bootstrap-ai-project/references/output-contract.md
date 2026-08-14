@@ -127,7 +127,9 @@ Represent both:
 
 Each module has an ID, name, responsibilities, dependencies, and repository
 paths. Do not assign a path that does not exist unless the target state is
-confirmed and the module is marked planned.
+confirmed and the module is marked planned. Current modules are never planned.
+When the target status is `preserve-current`, its style and modules must match
+the current architecture; its summary may explain the preservation decision.
 
 Boundaries define `allow`, `deny`, or `approval` relationships. Warning and
 blocking boundaries must cite observed or confirmed facts.
@@ -143,7 +145,9 @@ Each rule contains:
 - optional verification check ID;
 - optional approval requirement.
 
-Every blocking rule requires a check ID or `approvalRequired: true`.
+Every blocking rule requires a check ID or `approvalRequired: true`. Without an
+approval alternative, its check must be marked required so a failure blocks the
+generated verification runner.
 
 ## Skill And Workflow Contract
 
@@ -152,7 +156,8 @@ steps, and verification check IDs. It must not teach generic framework usage.
 
 A workflow coordinates phases such as inspect, design, implement, verify, and
 review. Each required workflow step must have an observable action. Use a
-check ID when a step is satisfied by deterministic verification.
+check ID when a step is satisfied by deterministic verification. A check bound
+to a required step must also be marked required.
 
 ## Verification Contract
 

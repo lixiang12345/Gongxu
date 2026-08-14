@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { relative, resolve, sep } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 
 import { extractCiRunCommands } from "./ci-commands.mjs";
 import { isManagedRegionOnlyChange, resolveInside } from "./files.mjs";
@@ -458,6 +459,7 @@ function validateArchitectureState(state, statePath, root, errors, { target = fa
     checkStringArray(module.dependencies, `${modulePath}.dependencies`, errors);
     checkStringArray(module.paths, `${modulePath}.paths`, errors);
     if (typeof module.planned !== "boolean") errors.push(`${modulePath}.planned must be boolean.`);
+    else if (!target && module.planned) errors.push(`${modulePath}.planned must be false in the current architecture.`);
     for (const dependency of arrayItems(module.dependencies)) {
       if (!validId(dependency)) errors.push(`${modulePath}.dependencies contains an invalid module id: ${dependency}`);
       if (!modules.has(dependency)) errors.push(`${modulePath} references unknown module dependency: ${dependency}`);
@@ -478,6 +480,18 @@ function validateArchitecture(architecture, root, facts, errors) {
   validateArchitectureState(architecture.target, "architecture.target", root, errors, { target: true });
   if (!new Set(["preserve-current", "confirmed", "proposed"]).has(architecture.target?.status)) {
     errors.push("architecture.target.status is invalid.");
+  } else if (architecture.target.status === "preserve-current") {
+    const currentShape = {
+      style: architecture.current?.style,
+      modules: architecture.current?.modules,
+    };
+    const targetShape = {
+      style: architecture.target.style,
+      modules: architecture.target.modules,
+    };
+    if (!isDeepStrictEqual(currentShape, targetShape)) {
+      errors.push("architecture.target with preserve-current status must match architecture.current style and modules.");
+    }
   }
   if (!Array.isArray(architecture.boundaries)) {
     errors.push("architecture.boundaries must be an array.");
@@ -592,6 +606,15 @@ function validateRules(rules, facts, checks, errors) {
     if (rule.severity === "block" && !rule.checkId && rule.approvalRequired !== true) {
       errors.push(`${path} blocking rule needs checkId or approvalRequired=true.`);
     }
+    if (
+      rule.severity === "block"
+      && rule.checkId
+      && rule.approvalRequired !== true
+      && checks.has(rule.checkId)
+      && checks.get(rule.checkId).required !== true
+    ) {
+      errors.push(`${path} blocking rule check must be required unless approvalRequired=true.`);
+    }
   }
 }
 
@@ -652,6 +675,9 @@ function validateWorkflows(workflows, checks, errors) {
       if (typeof step.required !== "boolean") errors.push(`${path} step ${step.id} required must be boolean.`);
       if (step.checkId !== undefined && !validId(step.checkId)) errors.push(`${stepPath}.checkId must be lowercase hyphen-case.`);
       else if (step.checkId && !checks.has(step.checkId)) errors.push(`${path} step ${step.id} references unknown check: ${step.checkId}`);
+      else if (step.required === true && step.checkId && checks.get(step.checkId).required !== true) {
+        errors.push(`${stepPath} required workflow step check must be required.`);
+      }
     }
   }
 }

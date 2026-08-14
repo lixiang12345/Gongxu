@@ -392,6 +392,47 @@ test("validator rejects unsafe repository paths and unresolved blocking unknowns
   assert.ok(result.errors.some((error) => error.includes("Blocking unknown must be resolved")));
 });
 
+test("validator keeps current and preserve-current architecture semantics aligned", (t) => {
+  const fixture = createFixture("node-monorepo");
+  t.after(() => cleanupFixture(fixture));
+
+  const plannedCurrent = validateMutation(fixture, (blueprint) => {
+    blueprint.architecture.current.modules[0].planned = true;
+  });
+  assert.ok(plannedCurrent.errors.includes(
+    "architecture.current.modules[0].planned must be false in the current architecture."
+  ));
+  assert.ok(plannedCurrent.errors.includes(
+    "architecture.target with preserve-current status must match architecture.current style and modules."
+  ));
+
+  const mismatchedTarget = validateMutation(fixture, (blueprint) => {
+    blueprint.architecture.target.modules[0].responsibilities = ["A different responsibility."];
+  });
+  assert.ok(mismatchedTarget.errors.includes(
+    "architecture.target with preserve-current status must match architecture.current style and modules."
+  ));
+
+  const proposedTarget = validateMutation(fixture, (blueprint) => {
+    blueprint.architecture.target.status = "proposed";
+    blueprint.architecture.target.modules[0].responsibilities = ["A proposed responsibility."];
+  });
+  assert.deepEqual(proposedTarget, { errors: [], warnings: [] });
+
+  const reorderedKeys = validateMutation(fixture, (blueprint) => {
+    const module = blueprint.architecture.target.modules[0];
+    blueprint.architecture.target.modules[0] = {
+      planned: module.planned,
+      paths: module.paths,
+      dependencies: module.dependencies,
+      responsibilities: module.responsibilities,
+      name: module.name,
+      id: module.id,
+    };
+  });
+  assert.deepEqual(reorderedKeys, { errors: [], warnings: [] });
+});
+
 test("validator requires enforceable blocking rules and valid check provenance", (t) => {
   const fixture = createFixture("node-monorepo");
   t.after(() => cleanupFixture(fixture));
@@ -407,4 +448,21 @@ test("validator requires enforceable blocking rules and valid check provenance",
 
   assert.ok(result.errors.some((error) => error.includes("blocking rule needs checkId or approvalRequired=true")));
   assert.ok(result.errors.some((error) => error.includes("must identify the confirming interview answer")));
+
+  const optionalCheck = validateMutation(fixture, (blueprint) => {
+    blueprint.verification[0].required = false;
+  });
+  assert.ok(optionalCheck.errors.includes(
+    "rules[1] blocking rule check must be required unless approvalRequired=true."
+  ));
+  assert.ok(optionalCheck.errors.includes(
+    "workflows[0].steps[2] required workflow step check must be required."
+  ));
+
+  const approvalAlternative = validateMutation(fixture, (blueprint) => {
+    blueprint.verification[0].required = false;
+    blueprint.rules[1].approvalRequired = true;
+    blueprint.workflows[0].steps[2].required = false;
+  });
+  assert.deepEqual(approvalAlternative, { errors: [], warnings: [] });
 });
