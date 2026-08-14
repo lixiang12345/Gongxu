@@ -187,6 +187,26 @@ test("validator reports missing and stale Git source revisions", (t) => {
   assert.ok(empty.errors.includes("evidence.sourceRevision must be a non-empty string or null."));
 });
 
+test("validator reports staged and untracked evidence when Git has no HEAD", (t) => {
+  const fixture = createFixture("node-monorepo");
+  t.after(() => cleanupFixture(fixture));
+  git(fixture.root, ["init", "--quiet"]);
+  writeFileSync(join(fixture.root, "000-staged.txt"), "staged before the first commit\n");
+  writeFileSync(join(fixture.root, "001-untracked.txt"), "untracked before the first commit\n");
+  git(fixture.root, ["add", "000-staged.txt"]);
+  const blueprint = loadBlueprint();
+  blueprint.evidence.sourceRevision = null;
+
+  const result = validateBlueprint(blueprint, fixture.root);
+  const warning = result.warnings.find((item) => item.startsWith(
+    "Git worktree has uncommitted repository changes not captured by evidence.sourceRevision:"
+  ));
+  assert.ok(warning);
+  assert.match(warning, /000-staged\.txt/);
+  assert.match(warning, /001-untracked\.txt/);
+  assert.equal(result.warnings.includes("Git worktree changes could not be inspected for evidence freshness."), false);
+});
+
 test("validator reports dirty repository state without flagging Gongxu outputs", (t) => {
   const fixture = createFixture("node-monorepo");
   t.after(() => cleanupFixture(fixture));

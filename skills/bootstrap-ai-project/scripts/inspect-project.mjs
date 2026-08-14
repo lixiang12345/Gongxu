@@ -5,6 +5,7 @@ import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync, statSyn
 import { basename, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import { extractCiRunCommands } from "./lib/ci-commands.mjs";
+import { readScopedGitStatus } from "./lib/files.mjs";
 
 const SCANNER_VERSION = "0.1.0";
 const MAX_FILES = 20_000;
@@ -141,65 +142,6 @@ function git(args, cwd) {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
     }).replace(/\r?\n$/, "");
-  } catch {
-    return null;
-  }
-}
-
-function scopedStatusPath(path, prefix) {
-  const normalized = normalizePath(path);
-  if (prefix && !normalized.startsWith(prefix)) {
-    throw new Error("Git status returned a path outside the inspection target.");
-  }
-  const scoped = prefix ? normalized.slice(prefix.length) : normalized;
-  if (!scoped || isAbsolute(scoped) || /^[A-Za-z]:\//.test(scoped) || scoped.split("/").includes("..")) {
-    throw new Error("Git status returned an invalid target-relative path.");
-  }
-  return scoped;
-}
-
-function parseGitStatus(output, prefix) {
-  if (output === "") return [];
-  const records = output.split("\0");
-  if (records.pop() !== "") throw new Error("Git status output is not NUL terminated.");
-  const status = [];
-  for (let index = 0; index < records.length; index += 1) {
-    const record = records[index];
-    if (record.length < 4 || record[2] !== " ") throw new Error("Git status output is malformed.");
-    const code = record.slice(0, 2);
-    const path = scopedStatusPath(record.slice(3), prefix);
-    status.push(`${code} ${path}`);
-    if (code.includes("R") || code.includes("C")) {
-      if (index + 1 >= records.length) throw new Error("Git rename status is incomplete.");
-      index += 1;
-    }
-  }
-  return status;
-}
-
-function scopedGitStatus(cwd) {
-  try {
-    const options = {
-      cwd,
-      encoding: "utf8",
-      maxBuffer: 10 * 1024 * 1024,
-      stdio: ["ignore", "pipe", "ignore"],
-    };
-    const prefix = normalizePath(
-      execFileSync("git", ["rev-parse", "--show-prefix"], options).replace(/\r?\n$/, "")
-    );
-    if (prefix && (!prefix.endsWith("/") || isAbsolute(prefix) || prefix.split("/").includes(".."))) {
-      throw new Error("Git returned an invalid target prefix.");
-    }
-    const output = execFileSync("git", [
-      "status",
-      "--porcelain=v1",
-      "-z",
-      "--untracked-files=all",
-      "--",
-      ".",
-    ], options);
-    return parseGitStatus(output, prefix);
   } catch {
     return null;
   }
@@ -525,7 +467,10 @@ function main() {
   const gitRoot = git(["rev-parse", "--show-toplevel"], root);
   const gitHead = git(["rev-parse", "HEAD"], root);
   const gitBranch = git(["branch", "--show-current"], root);
-  const gitStatus = gitRoot ? scopedGitStatus(root) : null;
+  const gitWorktree = gitRoot ? readScopedGitStatus(root) : null;
+  const gitStatus = gitWorktree
+    ? gitWorktree.changes.map((change) => `${change.code} ${change.path}`)
+    : null;
   const topLevelDirectories = readdirSync(root, { withFileTypes: true })
     .filter((entry) => entry.isDirectory() && !IGNORED_DIRECTORIES.has(entry.name))
     .map((entry) => entry.name)

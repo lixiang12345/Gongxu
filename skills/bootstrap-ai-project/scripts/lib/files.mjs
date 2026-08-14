@@ -1,12 +1,74 @@
+import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, relative, resolve, sep } from "node:path";
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 
 export const MANAGED_BEGIN = "<!-- gongxu:begin -->";
 export const MANAGED_END = "<!-- gongxu:end -->";
 
 export function normalizeRelative(path) {
   return path.split(sep).join("/").replace(/^\.\//, "");
+}
+
+function scopedStatusPath(path, prefix) {
+  const normalized = normalizeRelative(path);
+  if (prefix && !normalized.startsWith(prefix)) {
+    throw new Error("Git status returned a path outside the inspection target.");
+  }
+  const scoped = prefix ? normalized.slice(prefix.length) : normalized;
+  if (!scoped || isAbsolute(scoped) || /^[A-Za-z]:\//.test(scoped) || scoped.split("/").includes("..")) {
+    throw new Error("Git status returned an invalid target-relative path.");
+  }
+  return scoped;
+}
+
+function parseGitStatus(output, prefix) {
+  if (output === "") return [];
+  const records = output.split("\0");
+  if (records.pop() !== "") throw new Error("Git status output is not NUL terminated.");
+  const changes = [];
+  for (let index = 0; index < records.length; index += 1) {
+    const record = records[index];
+    if (record.length < 4 || record[2] !== " ") throw new Error("Git status output is malformed.");
+    const code = record.slice(0, 2);
+    const path = scopedStatusPath(record.slice(3), prefix);
+    changes.push({ code, path, tracked: code !== "??" });
+    if (code.includes("R") || code.includes("C")) {
+      if (index + 1 >= records.length) throw new Error("Git rename status is incomplete.");
+      index += 1;
+    }
+  }
+  return changes.sort((left, right) => left.path.localeCompare(right.path));
+}
+
+export function readScopedGitStatus(cwd) {
+  try {
+    const options = {
+      cwd,
+      encoding: "utf8",
+      maxBuffer: 10 * 1024 * 1024,
+      stdio: ["ignore", "pipe", "ignore"],
+    };
+    const prefix = normalizeRelative(
+      execFileSync("git", ["--no-optional-locks", "rev-parse", "--show-prefix"], options)
+        .replace(/\r?\n$/, "")
+    );
+    if (prefix && (!prefix.endsWith("/") || isAbsolute(prefix) || prefix.split("/").includes(".."))) {
+      throw new Error("Git returned an invalid target prefix.");
+    }
+    const output = execFileSync("git", [
+      "--no-optional-locks",
+      "status",
+      "--porcelain=v1",
+      "-z",
+      "--untracked-files=all",
+      "--",
+      ".",
+    ], options);
+    return { prefix, changes: parseGitStatus(output, prefix) };
+  } catch {
+    return null;
+  }
 }
 
 export function resolveInside(root, relativePath) {

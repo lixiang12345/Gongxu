@@ -87,6 +87,9 @@ the same.
 ledger, or `null` when no revision is available. A later HEAD mismatch is an
 evidence-freshness warning rather than a hard error because the blueprint's own
 commit necessarily advances the repository.
+An initialized Git repository without a first commit has no HEAD, so its source
+revision remains `null`; staged and untracked target files must still be
+reported as working-tree evidence not captured by a revision.
 
 Uncommitted repository changes also produce a freshness warning because HEAD
 does not identify their contents. Gongxu-generated files, managed adapter

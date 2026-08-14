@@ -4,7 +4,7 @@ import { relative, resolve, sep } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 
 import { extractCiRunCommands } from "./ci-commands.mjs";
-import { isManagedRegionOnlyChange, resolveInside } from "./files.mjs";
+import { isManagedRegionOnlyChange, readScopedGitStatus, resolveInside } from "./files.mjs";
 import {
   MAX_PROJECT_SKILL_ID_LENGTH,
   adapterSkillMetadata,
@@ -154,6 +154,18 @@ function currentGitRevision(root) {
   }
 }
 
+function currentGitRepository(root) {
+  try {
+    return execFileSync("git", ["rev-parse", "--is-inside-work-tree"], {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).replace(/\r?\n$/, "") === "true";
+  } catch {
+    return false;
+  }
+}
+
 function gitOptions(root) {
   return {
     cwd: root,
@@ -161,34 +173,6 @@ function gitOptions(root) {
     maxBuffer: 10 * 1024 * 1024,
     stdio: ["ignore", "pipe", "ignore"],
   };
-}
-
-function currentGitWorktreeChanges(root) {
-  const options = gitOptions(root);
-  try {
-    const prefix = execFileSync("git", ["rev-parse", "--show-prefix"], options).replace(/\r?\n$/, "");
-    const tracked = execFileSync(
-      "git",
-      ["diff", "--name-only", "--relative", "-z", "HEAD", "--"],
-      options
-    );
-    const untracked = execFileSync(
-      "git",
-      ["ls-files", "--others", "--exclude-standard", "-z", "--"],
-      options
-    );
-    const changes = new Map();
-    for (const path of tracked.split("\0").filter(Boolean)) changes.set(path, { path, tracked: true });
-    for (const path of untracked.split("\0").filter(Boolean)) {
-      if (!changes.has(path)) changes.set(path, { path, tracked: false });
-    }
-    return {
-      prefix,
-      changes: [...changes.values()].sort((a, b) => a.path.localeCompare(b.path)),
-    };
-  } catch {
-    return null;
-  }
 }
 
 function isGongxuOnlyWorktreeChange(root, prefix, change) {
@@ -442,13 +426,16 @@ function validateEvidence(ledger, root, answerIds, errors, warnings) {
     errors.push("evidence.sourceRevision must be a non-empty string or null.");
   } else {
     const currentRevision = currentGitRevision(root);
+    const gitRepository = currentRevision !== null || currentGitRepository(root);
     if (currentRevision && ledger.sourceRevision === null) {
       warnings.push(`evidence.sourceRevision is missing; current Git HEAD is ${currentRevision}.`);
     } else if (currentRevision && ledger.sourceRevision !== currentRevision) {
       warnings.push(`evidence.sourceRevision ${ledger.sourceRevision} differs from current Git HEAD ${currentRevision}; refresh repository evidence before adding new rules.`);
+    } else if (gitRepository && currentRevision === null && ledger.sourceRevision !== null) {
+      warnings.push(`evidence.sourceRevision ${ledger.sourceRevision} is set but the current Git repository has no HEAD.`);
     }
-    if (currentRevision) {
-      const worktree = currentGitWorktreeChanges(root);
+    if (gitRepository) {
+      const worktree = readScopedGitStatus(root);
       if (worktree === null) {
         warnings.push("Git worktree changes could not be inspected for evidence freshness.");
       } else {
