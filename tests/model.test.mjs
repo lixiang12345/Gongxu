@@ -446,6 +446,37 @@ test("validator rejects unsafe repository paths and unresolved blocking unknowns
   assert.ok(result.errors.some((error) => error.includes("Blocking unknown must be resolved")));
 });
 
+test("validator resolves required .ai Skill context against generated artifacts", (t) => {
+  const fixture = createFixture("node-monorepo");
+  t.after(() => cleanupFixture(fixture));
+
+  const generated = validateMutation(fixture, (blueprint) => {
+    blueprint.skills[0].context.push(
+      ".ai/manifest.json",
+      ".ai/rules/architecture.md",
+      ".ai/workflows/repository-change.md",
+      ".ai/examples/catalog.json"
+    );
+  });
+  assert.deepEqual(generated, { errors: [], warnings: [] });
+
+  const missing = validateMutation(fixture, (blueprint) => {
+    blueprint.skills[0].context.push(".ai/not-generated.md");
+  });
+  assert.ok(missing.errors.includes(
+    "skills[0].context path will not exist after compilation: .ai/not-generated.md"
+  ));
+
+  mkdirSync(join(fixture.root, ".ai/rules"), { recursive: true });
+  writeFileSync(join(fixture.root, ".ai/rules/security.md"), "stale generated rule\n");
+  const staleManaged = validateMutation(fixture, (blueprint) => {
+    blueprint.skills[0].context.push(".ai/rules/security.md");
+  });
+  assert.ok(staleManaged.errors.includes(
+    "skills[0].context path will not exist after compilation: .ai/rules/security.md"
+  ));
+});
+
 test("validator keeps current and preserve-current architecture semantics aligned", (t) => {
   const fixture = createFixture("node-monorepo");
   t.after(() => cleanupFixture(fixture));

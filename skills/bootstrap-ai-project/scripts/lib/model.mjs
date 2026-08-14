@@ -57,6 +57,25 @@ function validId(value) {
   return nonEmpty(value) && value.length <= 80 && ID_PATTERN.test(value);
 }
 
+function generatedAiPaths(blueprint) {
+  const paths = new Set([
+    ...MANAGED_FILE_PATHS,
+    ".ai/blueprint.json",
+    ".ai/manifest.json",
+  ]);
+  if (arrayItems(blueprint.examples).length === 0) paths.delete(".ai/examples/catalog.json");
+  for (const rule of arrayItems(blueprint.rules)) {
+    if (RULE_SCOPES.has(rule?.scope)) paths.add(`.ai/rules/${rule.scope}.md`);
+  }
+  for (const skill of arrayItems(blueprint.skills)) {
+    if (validId(skill?.id)) paths.add(`.ai/skills/${skill.id}/SKILL.md`);
+  }
+  for (const workflow of arrayItems(blueprint.workflows)) {
+    if (validId(workflow?.id)) paths.add(`.ai/workflows/${workflow.id}.md`);
+  }
+  return paths;
+}
+
 export function managedOwnershipForPath(path) {
   if (typeof path !== "string") return null;
   if (MANAGED_REGION_PATHS.has(path)) return "region";
@@ -624,7 +643,7 @@ function validateRules(rules, facts, checks, errors) {
   }
 }
 
-function validateSkills(skills, root, checks, errors, warnings) {
+function validateSkills(skills, root, checks, expectedAiPaths, errors, warnings) {
   if (!Array.isArray(skills)) {
     errors.push("skills must be an array.");
     return;
@@ -646,6 +665,12 @@ function validateSkills(skills, root, checks, errors, warnings) {
     for (const contextPath of arrayItems(skill.context)) {
       if (!isSafeRelativePath(contextPath)) {
         errors.push(`${path}.context path is not repository-relative: ${contextPath}`);
+      } else if (
+        contextPath.startsWith(".ai/")
+        && !expectedAiPaths.has(contextPath)
+        && (managedOwnershipForPath(contextPath) !== null || !pathExists(root, contextPath))
+      ) {
+        errors.push(`${path}.context path will not exist after compilation: ${contextPath}`);
       } else if (!contextPath.startsWith(".ai/") && !pathExists(root, contextPath)) {
         warnings.push(`${path}.context path is unresolved: ${contextPath}`);
       }
@@ -756,7 +781,7 @@ export function validateBlueprint(blueprint, root) {
   const checks = validateChecks(blueprint.verification, root, answers, errors);
   validateArchitecture(blueprint.architecture, root, facts, errors);
   validateRules(blueprint.rules, facts, checks, errors);
-  validateSkills(blueprint.skills, root, checks, errors, warnings);
+  validateSkills(blueprint.skills, root, checks, generatedAiPaths(blueprint), errors, warnings);
   validateWorkflows(blueprint.workflows, checks, errors);
   validateExamples(blueprint.examples, root, facts, errors);
   if (!Array.isArray(blueprint.adapters)) errors.push("adapters must be an array.");
