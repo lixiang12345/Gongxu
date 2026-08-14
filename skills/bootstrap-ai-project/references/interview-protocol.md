@@ -134,4 +134,5 @@ accepted.
 - Select examples only after checking they are representative and maintained.
 - Treat an existing command as available, not necessarily passing; execution is
   separate evidence.
-
+- Treat a synthesized package-script command marked `inferred` as a candidate,
+  not as an observed verification command; confirm it or find an exact source.

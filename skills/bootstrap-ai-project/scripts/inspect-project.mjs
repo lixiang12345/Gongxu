@@ -62,6 +62,17 @@ const NON_PROJECT_SIGNAL_DIRECTORIES = new Set([
   "testdata",
 ]);
 
+const PACKAGE_MANAGER_LOCKFILES = new Map([
+  ["package-lock.json", "npm"],
+  ["npm-shrinkwrap.json", "npm"],
+  ["pnpm-lock.yaml", "pnpm"],
+  ["yarn.lock", "yarn"],
+  ["bun.lock", "bun"],
+  ["bun.lockb", "bun"],
+]);
+
+const VERIFICATION_SCRIPT_NAMES = ["test", "lint", "typecheck", "check", "build", "test:unit", "test:e2e"];
+
 const LANGUAGE_EXTENSIONS = new Map([
   [".ts", "TypeScript"],
   [".tsx", "TypeScript"],
@@ -203,15 +214,6 @@ function readAllowed(root, relPath) {
   }
 }
 
-function packageManagerFor(files) {
-  const paths = new Set(files.map((file) => file.path));
-  if (paths.has("pnpm-lock.yaml")) return "pnpm";
-  if (paths.has("yarn.lock")) return "yarn";
-  if (paths.has("bun.lock") || paths.has("bun.lockb")) return "bun";
-  if (paths.has("package-lock.json")) return "npm";
-  return [...paths].some((path) => /(^|\/)package\.json$/.test(path)) ? "npm" : null;
-}
-
 function packageScriptCommand(manager, script, packagePath) {
   const prefix = packagePath === "package.json" ? "" : ` --dir ${JSON.stringify(packagePath.replace(/\/package\.json$/, ""))}`;
   if (manager === "pnpm") return `pnpm${prefix} run ${script}`;
@@ -221,13 +223,11 @@ function packageScriptCommand(manager, script, packagePath) {
 }
 
 function inspectPackages(root, files) {
-  const manager = packageManagerFor(files);
   const packagePaths = files
     .filter((file) => file.type === "file" && /(^|\/)package\.json$/.test(file.path))
     .map((file) => file.path)
     .slice(0, 200);
   const packages = [];
-  const verificationCandidates = [];
 
   for (const path of packagePaths) {
     const content = readAllowed(root, path);
@@ -243,6 +243,7 @@ function inspectPackages(root, files) {
         path,
         name: typeof parsed.name === "string" ? parsed.name : null,
         private: parsed.private === true,
+        packageManager: typeof parsed.packageManager === "string" ? parsed.packageManager : null,
         workspaces: Array.isArray(parsed.workspaces)
           ? parsed.workspaces
           : Array.isArray(parsed.workspaces?.packages)
@@ -251,23 +252,95 @@ function inspectPackages(root, files) {
         scripts,
         dependencies: Object.keys(dependencies).sort(),
       });
-
-      for (const script of ["test", "lint", "typecheck", "check", "build", "test:unit", "test:e2e"]) {
-        if (typeof scripts[script] !== "string") continue;
-        verificationCandidates.push({
-          id: `${path.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "").toLowerCase()}-${script.replace(/[^a-z0-9]+/gi, "-")}`,
-          name: `${parsed.name || path}: ${script}`,
-          command: packageScriptCommand(manager, script, path),
-          cwd: ".",
-          status: "observed",
-          source: { path, pointer: `scripts.${script}`, note: `Package script: ${scripts[script]}` },
-        });
-      }
     } catch {
       packages.push({ path, parseError: "Invalid JSON" });
     }
   }
-  return { manager, packages, verificationCandidates };
+  return packages;
+}
+
+function packageManagerFromDeclaration(value) {
+  if (typeof value !== "string") return null;
+  return value.trim().match(/^(npm|pnpm|yarn|bun)@\S+$/)?.[1] || null;
+}
+
+function packageManagerFromCommand(command) {
+  if (typeof command !== "string") return null;
+  return command.trim().match(/^(?:corepack\s+)?(npm|pnpm|yarn|bun)(?:\s|$)/)?.[1] || null;
+}
+
+function detectPackageManager(files, packages, ciCandidates) {
+  const evidence = [];
+  const warnings = [];
+
+  for (const file of files) {
+    if (file.type !== "file") continue;
+    const manager = PACKAGE_MANAGER_LOCKFILES.get(basename(file.path));
+    if (!manager) continue;
+    evidence.push({ manager, kind: "lockfile", path: file.path, note: `${manager} lockfile` });
+  }
+
+  for (const pkg of packages) {
+    if (!pkg.packageManager) continue;
+    const manager = packageManagerFromDeclaration(pkg.packageManager);
+    if (!manager) {
+      warnings.push(`Unrecognized packageManager declaration at ${pkg.path}; it was not used as evidence.`);
+      continue;
+    }
+    evidence.push({
+      manager,
+      kind: "package-json",
+      path: pkg.path,
+      pointer: "packageManager",
+      note: `Declared ${pkg.packageManager}`,
+    });
+  }
+
+  for (const candidate of ciCandidates) {
+    const manager = packageManagerFromCommand(candidate.command);
+    if (!manager) continue;
+    evidence.push({
+      manager,
+      kind: "ci-command",
+      path: candidate.source.path,
+      pointer: candidate.source.pointer,
+      note: `CI command: ${candidate.command}`,
+    });
+  }
+
+  const managers = [...new Set(evidence.map((item) => item.manager))].sort();
+  const hasVerificationScripts = packages.some((pkg) => VERIFICATION_SCRIPT_NAMES.some((name) => typeof pkg.scripts?.[name] === "string"));
+  if (managers.length > 1) {
+    warnings.push(`Conflicting package manager evidence found (${managers.join(", ")}); package-script commands were not generated.`);
+  } else if (managers.length === 0 && hasVerificationScripts) {
+    warnings.push("Package scripts were found without package manager evidence; package-script commands were not generated.");
+  }
+
+  return {
+    name: managers.length === 1 ? managers[0] : null,
+    status: managers.length > 1 ? "conflicting" : managers.length === 1 ? "observed" : "unknown",
+    evidence,
+    warnings,
+  };
+}
+
+function packageVerificationCandidates(packages, packageManager) {
+  if (!packageManager.name) return [];
+  const candidates = [];
+  for (const pkg of packages) {
+    for (const script of VERIFICATION_SCRIPT_NAMES) {
+      if (typeof pkg.scripts?.[script] !== "string") continue;
+      candidates.push({
+        id: `${pkg.path.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "").toLowerCase()}-${script.replace(/[^a-z0-9]+/gi, "-")}`,
+        name: `${pkg.name || pkg.path}: ${script}`,
+        command: packageScriptCommand(packageManager.name, script, pkg.path),
+        cwd: ".",
+        status: "inferred",
+        source: { path: pkg.path, pointer: `scripts.${script}`, note: `Package script: ${pkg.scripts[script]}` },
+      });
+    }
+  }
+  return candidates;
 }
 
 function detectFrameworks(packages, root, filePaths) {
@@ -348,7 +421,7 @@ function main() {
   const projectFiles = files.filter((file) => isProjectSignalPath(file.path));
   const projectFilePaths = projectFiles.map((file) => file.path);
   const pathSet = new Set(projectFilePaths);
-  const packageInfo = inspectPackages(root, projectFiles);
+  const packages = inspectPackages(root, projectFiles);
 
   const ciPaths = findMatches(projectFilePaths, [
     /^\.github\/workflows\/[^/]+\.(?:yml|yaml)$/,
@@ -389,6 +462,9 @@ function main() {
     /vercel\.json$/i,
     /fly\.toml$/i,
   ]);
+  const ciCandidates = extractCiCommands(root, ciPaths);
+  const packageManager = detectPackageManager(projectFiles, packages, ciCandidates);
+  const packageCandidates = packageVerificationCandidates(packages, packageManager);
 
   const gitRoot = git(["rev-parse", "--show-toplevel"], root);
   const gitHead = git(["rev-parse", "HEAD"], root);
@@ -412,7 +488,7 @@ function main() {
     /^pubspec\.yaml$/,
   ]);
   const workspaceSignals = ["pnpm-workspace.yaml", "nx.json", "turbo.json", "lerna.json"].filter((path) => pathSet.has(path));
-  const isMonorepo = workspaceSignals.length > 0 || packageInfo.packages.length > 1;
+  const isMonorepo = workspaceSignals.length > 0 || packages.length > 1;
 
   const output = {
     scanner: { name: "gongxu-inspect", version: SCANNER_VERSION },
@@ -439,15 +515,17 @@ function main() {
     },
     detected: {
       languages: detectLanguages(projectFiles),
-      frameworks: detectFrameworks(packageInfo.packages, root, projectFilePaths),
-      packageManager: packageInfo.manager,
-      packages: packageInfo.packages,
+      frameworks: detectFrameworks(packages, root, projectFilePaths),
+      packageManager: packageManager.name,
+      packageManagerStatus: packageManager.status,
+      packageManagerEvidence: packageManager.evidence,
+      packages,
       repositoryShape: isMonorepo ? "monorepo" : "single-project",
       workspaceSignals,
     },
     verificationCandidates: [
-      ...packageInfo.verificationCandidates,
-      ...extractCiCommands(root, ciPaths),
+      ...packageCandidates,
+      ...ciCandidates,
     ],
     existingAi: {
       gongxu: pathSet.has(".ai/manifest.json") && pathSet.has(".ai/blueprint.json"),
@@ -458,6 +536,7 @@ function main() {
       ...(walkResult.skippedSensitive.length > 0 ? ["Sensitive-looking files were listed but never read."] : []),
       ...(!gitRoot ? ["Target is not inside a Git repository."] : []),
       ...(gitRoot && !isAbsolute(gitRoot) ? ["Git returned a non-absolute repository root."] : []),
+      ...packageManager.warnings,
     ],
   };
 

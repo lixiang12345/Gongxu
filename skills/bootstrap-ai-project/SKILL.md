@@ -57,6 +57,11 @@ to resolve important signals, such as manifests, CI workflows, existing
 instructions, architecture docs, public contracts, and representative tests.
 Never read secrets or environment-value files.
 
+Treat each verification candidate according to its `status`. A command marked
+`inferred` is a proposal assembled from separate repository signals; find an
+exact manifest or CI reference, or confirm it with the user, before recording
+it as an observed or confirmed verification check.
+
 If Gongxu already exists, run:
 
 ```bash
