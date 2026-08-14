@@ -210,6 +210,9 @@ claims, even when a manifest entry contains their current hash.
 The compiler must stop on drift in a managed file or region.
 `--force-path <relative-path>` is an exact-path override, never an automatic or
 directory-wide repair strategy.
+An existing full-file target without a matching manifest ownership record is a
+collision even when its bytes equal the current renderer output. Byte equality
+does not prove ownership; adopting that exact path requires `--force-path`.
 
 If applying any managed write fails, the compiler must restore the file
 contents and modes captured before that compile attempt, keep the prior

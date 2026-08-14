@@ -13,8 +13,10 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import test from "node:test";
+
+import { renderArtifacts } from "../skills/bootstrap-ai-project/scripts/lib/render.mjs";
 
 import {
   cleanupFixture,
@@ -398,6 +400,30 @@ test("compiler refuses unowned AI content, wrapper collisions, and symlink trave
     const result = compileFixture(fixture, blueprintPath);
     assert.equal(result.status, 1);
     assert.ok(parseJsonOutput(result).conflicts.some((item) => item.path.includes("gongxu-change-workspace-feature")));
+  });
+
+  await t.test("byte-identical unowned adapter collision", (t) => {
+    const fixture = createFixture("node-monorepo");
+    t.after(() => cleanupFixture(fixture));
+    const blueprint = loadBlueprint();
+    const blueprintPath = writeBlueprint(fixture, blueprint);
+    const relativePath = ".agents/skills/gongxu-change-workspace-feature/SKILL.md";
+    const collision = join(fixture.root, relativePath);
+    mkdirSync(dirname(collision), { recursive: true });
+    const rendered = renderArtifacts(blueprint, fixture.root).get(relativePath).content;
+    writeFileSync(collision, rendered);
+
+    const rejected = compileFixture(fixture, blueprintPath);
+    assert.equal(rejected.status, 1);
+    assert.ok(parseJsonOutput(rejected).conflicts.some((item) =>
+      item.path === relativePath && item.reason.includes("without a manifest ownership record")
+    ));
+    assert.equal(existsSync(join(fixture.root, ".ai")), false);
+
+    const adopted = compileFixture(fixture, blueprintPath, ["--force-path", relativePath]);
+    assert.equal(adopted.status, 0, adopted.stderr || adopted.stdout);
+    const manifest = JSON.parse(readFixtureFile(fixture, ".ai/manifest.json"));
+    assert.ok(manifest.managedFiles.some((entry) => entry.path === relativePath));
   });
 
   await t.test("managed path symlink", (t) => {

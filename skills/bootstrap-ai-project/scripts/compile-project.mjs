@@ -259,7 +259,7 @@ function planActions(root, rendered, manifest, forcePaths) {
           conflicts.push({ path: artifact.path, reason: "Gongxu markers exist without a manifest ownership record" });
           continue;
         }
-      } else if (!same && !forcePaths.has(artifact.path)) {
+      } else if (!forcePaths.has(artifact.path)) {
         conflicts.push({ path: artifact.path, reason: "target path exists without a manifest ownership record" });
         continue;
       }
