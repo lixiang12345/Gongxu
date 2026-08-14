@@ -38,6 +38,10 @@ function isObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+function arrayItems(value) {
+  return Array.isArray(value) ? value : [];
+}
+
 function nonEmpty(value) {
   return typeof value === "string" && value.trim().length > 0;
 }
@@ -454,12 +458,12 @@ function validateArchitectureState(state, statePath, root, errors, { target = fa
     checkStringArray(module.dependencies, `${modulePath}.dependencies`, errors);
     checkStringArray(module.paths, `${modulePath}.paths`, errors);
     if (typeof module.planned !== "boolean") errors.push(`${modulePath}.planned must be boolean.`);
-    for (const dependency of module.dependencies || []) {
+    for (const dependency of arrayItems(module.dependencies)) {
       if (!validId(dependency)) errors.push(`${modulePath}.dependencies contains an invalid module id: ${dependency}`);
       if (!modules.has(dependency)) errors.push(`${modulePath} references unknown module dependency: ${dependency}`);
       if (dependency === module.id) errors.push(`${modulePath} must not depend on itself.`);
     }
-    for (const path of module.paths || []) {
+    for (const path of arrayItems(module.paths)) {
       if (!isSafeRelativePath(path)) errors.push(`${modulePath}.paths is not a safe repository-relative path: ${path}`);
       else if (!module.planned && !pathExists(root, path)) errors.push(`${modulePath}.paths does not exist: ${path}`);
     }
@@ -490,7 +494,7 @@ function validateArchitecture(architecture, root, facts, errors) {
     }
     if (!new Set(["allow", "deny", "approval"]).has(boundary.policy)) errors.push(`${path}.policy is invalid.`);
     checkStringArray(boundary.sourceFactIds, `${path}.sourceFactIds`, errors, { allowEmpty: false });
-    for (const factId of boundary.sourceFactIds || []) {
+    for (const factId of arrayItems(boundary.sourceFactIds)) {
       const fact = facts.get(factId);
       if (!fact) errors.push(`${path} references unknown fact: ${factId}`);
       else if (!new Set(["observed", "confirmed"]).has(fact.status) && boundary.policy !== "allow") {
@@ -573,7 +577,7 @@ function validateRules(rules, facts, checks, errors) {
     if (!RULE_SEVERITIES.has(rule.severity)) errors.push(`${path}.severity is invalid.`);
     if (!nonEmpty(rule.statement) || !nonEmpty(rule.rationale)) errors.push(`${path} needs statement and rationale.`);
     checkStringArray(rule.sourceFactIds, `${path}.sourceFactIds`, errors, { allowEmpty: false });
-    for (const factId of rule.sourceFactIds || []) {
+    for (const factId of arrayItems(rule.sourceFactIds)) {
       const fact = facts.get(factId);
       if (!fact) errors.push(`${path} references unknown fact: ${factId}`);
       else if ((rule.severity === "warn" || rule.severity === "block") && !new Set(["observed", "confirmed"]).has(fact.status)) {
@@ -607,14 +611,14 @@ function validateSkills(skills, root, checks, errors, warnings) {
     checkStringArray(skill.context, `${path}.context`, errors);
     checkStringArray(skill.steps, `${path}.steps`, errors, { allowEmpty: false });
     checkStringArray(skill.verificationCheckIds, `${path}.verificationCheckIds`, errors);
-    for (const contextPath of skill.context || []) {
+    for (const contextPath of arrayItems(skill.context)) {
       if (!isSafeRelativePath(contextPath)) {
         errors.push(`${path}.context path is not repository-relative: ${contextPath}`);
       } else if (!contextPath.startsWith(".ai/") && !pathExists(root, contextPath)) {
         warnings.push(`${path}.context path is unresolved: ${contextPath}`);
       }
     }
-    for (const checkId of skill.verificationCheckIds || []) {
+    for (const checkId of arrayItems(skill.verificationCheckIds)) {
       if (!checks.has(checkId)) errors.push(`${path} references unknown check: ${checkId}`);
     }
   }
@@ -666,7 +670,7 @@ function validateExamples(examples, root, facts, errors) {
     if (!nonEmpty(example.path) || !pathExists(root, example.path)) errors.push(`${path}.path does not exist: ${example.path}`);
     checkStringArray(example.demonstrates, `${path}.demonstrates`, errors, { allowEmpty: false });
     checkStringArray(example.sourceFactIds, `${path}.sourceFactIds`, errors, { allowEmpty: false });
-    for (const factId of example.sourceFactIds || []) {
+    for (const factId of arrayItems(example.sourceFactIds)) {
       const fact = facts.get(factId);
       if (!fact) errors.push(`${path} references unknown fact: ${factId}`);
       else if (!new Set(["observed", "confirmed"]).has(fact.status)) errors.push(`${path} relies on unconfirmed fact: ${factId}`);

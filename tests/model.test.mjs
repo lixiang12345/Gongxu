@@ -345,6 +345,30 @@ test("validator rejects unsupported fields and malformed nested values without c
     blueprint.architecture.current.modules = [null];
   });
   assert.ok(malformed.errors.some((error) => error.includes("must be an object")));
+
+  let malformedCollections;
+  assert.doesNotThrow(() => {
+    malformedCollections = validateMutation(fixture, (blueprint) => {
+      blueprint.architecture.current.modules[0].dependencies = {};
+      blueprint.architecture.current.modules[0].paths = {};
+      blueprint.architecture.boundaries[0].sourceFactIds = {};
+      blueprint.rules[0].sourceFactIds = {};
+      blueprint.skills[0].context = {};
+      blueprint.skills[0].verificationCheckIds = {};
+      blueprint.examples[0].sourceFactIds = {};
+    });
+  });
+  for (const path of [
+    "architecture.current.modules[0].dependencies",
+    "architecture.current.modules[0].paths",
+    "architecture.boundaries[0].sourceFactIds",
+    "rules[0].sourceFactIds",
+    "skills[0].context",
+    "skills[0].verificationCheckIds",
+    "examples[0].sourceFactIds",
+  ]) {
+    assert.ok(malformedCollections.errors.includes(`${path} must be an array.`), path);
+  }
 });
 
 test("validator rejects unsafe repository paths and unresolved blocking unknowns", (t) => {

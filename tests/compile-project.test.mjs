@@ -434,6 +434,14 @@ test("compiler reports invalid blueprint JSON and structure without an uncaught 
   assert.equal(report.ok, false);
   assert.ok(report.errors.some((error) => error.includes("rules[0] must be an object")));
 
+  const malformedCollection = loadBlueprint();
+  malformedCollection.skills[0].context = {};
+  const malformedCollectionPath = writeBlueprint(fixture, malformedCollection, "malformed-collection.json");
+  const rejectedCollection = compileFixture(fixture, malformedCollectionPath);
+  assert.equal(rejectedCollection.status, 1);
+  assert.doesNotMatch(rejectedCollection.stderr, /\n\s+at /);
+  assert.ok(JSON.parse(rejectedCollection.stderr).errors.includes("skills[0].context must be an array."));
+
   const markerBlueprint = loadBlueprint();
   markerBlueprint.project.summary = "Unsafe <!-- gongxu:end --> marker";
   const markerPath = writeBlueprint(fixture, markerBlueprint, "reserved-marker.json");
