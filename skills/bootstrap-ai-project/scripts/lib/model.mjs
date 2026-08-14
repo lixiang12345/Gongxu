@@ -5,6 +5,12 @@ import { isDeepStrictEqual } from "node:util";
 
 import { extractCiRunCommands } from "./ci-commands.mjs";
 import { isManagedRegionOnlyChange, resolveInside } from "./files.mjs";
+import {
+  MAX_PROJECT_SKILL_ID_LENGTH,
+  adapterSkillMetadata,
+  canonicalSkillMetadata,
+  validateSkillDescription,
+} from "./skill-documents.mjs";
 
 export const GENERATOR_NAME = "gongxu";
 export const GENERATOR_VERSION = "0.1.0";
@@ -629,6 +635,9 @@ function validateSkills(skills, root, checks, errors, warnings) {
     const path = `skills[${index}]`;
     const keys = ["id", "name", "description", "triggers", "context", "steps", "verificationCheckIds"];
     if (!checkObjectShape(skill, path, keys, keys, errors)) continue;
+    if (typeof skill.id === "string" && ID_PATTERN.test(skill.id) && skill.id.length > MAX_PROJECT_SKILL_ID_LENGTH) {
+      errors.push(`${path}.id must be at most ${MAX_PROJECT_SKILL_ID_LENGTH} characters so generated adapter Skill names stay within 64 characters.`);
+    }
     for (const key of ["name", "description"]) if (!nonEmpty(skill[key])) errors.push(`${path}.${key} must be non-empty.`);
     checkStringArray(skill.triggers, `${path}.triggers`, errors, { allowEmpty: false });
     checkStringArray(skill.context, `${path}.context`, errors);
@@ -643,6 +652,20 @@ function validateSkills(skills, root, checks, errors, warnings) {
     }
     for (const checkId of arrayItems(skill.verificationCheckIds)) {
       if (!checks.has(checkId)) errors.push(`${path} references unknown check: ${checkId}`);
+    }
+    if (nonEmpty(skill.description)) {
+      const generatedMetadata = [
+        ["Codex adapter", adapterSkillMetadata(skill, "codex")],
+        ["Claude Code adapter", adapterSkillMetadata(skill, "claude")],
+      ];
+      if (Array.isArray(skill.triggers) && skill.triggers.length > 0 && skill.triggers.every(nonEmpty)) {
+        generatedMetadata.unshift(["canonical", canonicalSkillMetadata(skill)]);
+      }
+      for (const [label, metadata] of generatedMetadata) {
+        for (const error of validateSkillDescription(metadata.description)) {
+          errors.push(`${path} generated ${label} Skill description ${error}.`);
+        }
+      }
     }
   }
 }

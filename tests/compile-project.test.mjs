@@ -90,6 +90,21 @@ test("compiler previews, initializes, validates, and exposes thin adapters", (t)
   assert.match(missingCheckId.stderr, /requires a check id/);
 });
 
+test("validator applies Skill document constraints to current generated files", (t) => {
+  const { fixture } = initialize(t);
+  const skillPath = join(fixture.root, ".agents/skills/gongxu-change-workspace-feature/SKILL.md");
+  const invalid = readFileSync(skillPath, "utf8")
+    .replace(/^name: .*$/m, "name: another-skill")
+    .replace(/^description: .*$/m, "description: \"Use <unsafe> markup.\"");
+  writeFileSync(skillPath, invalid);
+
+  const validation = runNode(validateScript, [fixture.root, "--allow-drift"]);
+  assert.equal(validation.status, 1, validation.stderr || validation.stdout);
+  const report = parseJsonOutput(validation);
+  assert.ok(report.errors.some((error) => error.includes("skill name must match its directory name")));
+  assert.ok(report.errors.some((error) => error.includes("skill description must not contain angle brackets")));
+});
+
 test("recompilation is idempotent and preserves user-owned instruction content", (t) => {
   const { fixture, blueprintPath } = initialize(t);
   const manifestBefore = readFixtureFile(fixture, ".ai/manifest.json");
@@ -448,5 +463,21 @@ test("compiler reports invalid blueprint JSON and structure without an uncaught 
   const reservedMarker = compileFixture(fixture, markerPath);
   assert.equal(reservedMarker.status, 1);
   assert.match(reservedMarker.stderr, /reserved Gongxu managed marker/);
+  assert.equal(existsSync(join(fixture.root, ".ai")), false);
+});
+
+test("compiler rejects an oversized generated Skill before writing .ai", (t) => {
+  const fixture = createFixture("node-monorepo");
+  t.after(() => cleanupFixture(fixture));
+  const blueprint = loadBlueprint();
+  blueprint.skills[0].steps = Array.from(
+    { length: 500 },
+    (_, index) => `Perform bounded project step ${index + 1}.`
+  );
+  const blueprintPath = writeBlueprint(fixture, blueprint, "oversized-skill.json");
+
+  const result = compileFixture(fixture, blueprintPath);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /Skill documents must not exceed 500 lines/);
   assert.equal(existsSync(join(fixture.root, ".ai")), false);
 });

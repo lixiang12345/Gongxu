@@ -153,6 +153,13 @@ generated verification runner.
 
 A skill contains project-specific triggers, required context paths, ordered
 steps, and verification check IDs. It must not teach generic framework usage.
+Its ID is lowercase hyphen-case and at most 57 characters so the generated
+`gongxu-` adapter name remains within the 64-character Agent Skills limit.
+Every generated `SKILL.md` name must match its containing directory, its
+description must be non-empty, at most 1024 characters, and contain no angle
+brackets, and the complete document must not exceed 500 lines. Compilation
+must reject a blueprint before writing when its generated Skill metadata or
+document would violate these limits.
 
 A workflow coordinates phases such as inspect, design, implement, verify, and
 review. Each required workflow step must have an observable action. Use a

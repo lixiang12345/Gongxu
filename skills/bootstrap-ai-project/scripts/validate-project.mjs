@@ -17,6 +17,7 @@ import {
   validateBlueprint,
 } from "./lib/model.mjs";
 import { renderArtifacts } from "./lib/render.mjs";
+import { validateSkillDocument } from "./lib/skill-documents.mjs";
 
 const MANIFEST_KEYS = [
   "schemaVersion",
@@ -95,22 +96,6 @@ function parseArgs(argv) {
   }
   options.root ||= process.cwd();
   return options;
-}
-
-function validateSkillFrontmatter(path, content, errors) {
-  if (typeof content !== "string") {
-    errors.push(`${path} cannot be read as text.`);
-    return;
-  }
-  const match = content.match(/^---\n([\s\S]*?)\n---\n/);
-  if (!match) {
-    errors.push(`${path} has no YAML frontmatter.`);
-    return;
-  }
-  const name = match[1].match(/^name:\s*([^\n]+)$/m)?.[1]?.trim();
-  const description = match[1].match(/^description:\s*([^\n]+)$/m)?.[1]?.trim();
-  if (!name || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name)) errors.push(`${path} has an invalid skill name.`);
-  if (!description) errors.push(`${path} has no skill description.`);
 }
 
 function main() {
@@ -248,7 +233,7 @@ function main() {
       errors.push(`Generated artifact contains an unresolved placeholder: ${artifact.path}`);
     }
     if (/\.ai\/skills\/[^/]+\/SKILL\.md$/.test(artifact.path) || /\.(?:agents|claude)\/skills\/[^/]+\/SKILL\.md$/.test(artifact.path)) {
-      validateSkillFrontmatter(artifact.path, current, errors);
+      errors.push(...validateSkillDocument(artifact.path, current).errors);
     }
     manifestEntries.delete(artifact.path);
   }

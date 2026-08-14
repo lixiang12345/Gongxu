@@ -64,6 +64,60 @@ test("blueprint schema requires pointers for file-backed verification sources", 
   assert.deepEqual(pointerCondition.then.properties.pointer, { $ref: "#/$defs/nonEmpty" });
 });
 
+test("project skill ids reserve room for the generated adapter prefix", (t) => {
+  const schema = JSON.parse(readFileSync(join(repositoryRoot, "skills/bootstrap-ai-project/assets/blueprint.schema.json"), "utf8"));
+  assert.equal(schema.$defs.id.maxLength, 80);
+  assert.equal(schema.$defs.projectSkillId.maxLength, 57);
+  assert.deepEqual(schema.$defs.skill.properties.id, { $ref: "#/$defs/projectSkillId" });
+  assert.deepEqual(schema.$defs.project.properties.id, { $ref: "#/$defs/id" });
+
+  const fixture = createFixture("node-monorepo");
+  t.after(() => cleanupFixture(fixture));
+
+  const accepted = validateMutation(fixture, (blueprint) => {
+    blueprint.skills[0].id = "s".repeat(57);
+  });
+  assert.deepEqual(accepted, { errors: [], warnings: [] });
+
+  const rejected = validateMutation(fixture, (blueprint) => {
+    blueprint.skills[0].id = "s".repeat(58);
+  });
+  assert.ok(rejected.errors.includes(
+    "skills[0].id must be at most 57 characters so generated adapter Skill names stay within 64 characters."
+  ));
+});
+
+test("validator rejects invalid generated Skill descriptions", (t) => {
+  const fixture = createFixture("node-monorepo");
+  t.after(() => cleanupFixture(fixture));
+
+  const oversizedAdapter = validateMutation(fixture, (blueprint) => {
+    blueprint.skills[0].description = "x".repeat(970);
+    blueprint.skills[0].triggers = ["change"];
+  });
+  assert.equal(
+    oversizedAdapter.errors.some((error) => error.includes("generated canonical Skill description")),
+    false
+  );
+  assert.ok(oversizedAdapter.errors.some((error) =>
+    error.includes("generated Codex adapter Skill description must be at most 1024 characters")
+  ));
+  assert.ok(oversizedAdapter.errors.some((error) =>
+    error.includes("generated Claude Code adapter Skill description must be at most 1024 characters")
+  ));
+
+  const unsafeCanonical = validateMutation(fixture, (blueprint) => {
+    blueprint.skills[0].triggers = ["a <tagged> request"];
+  });
+  assert.ok(unsafeCanonical.errors.includes(
+    "skills[0] generated canonical Skill description must not contain angle brackets."
+  ));
+  assert.equal(
+    unsafeCanonical.errors.some((error) => error.includes("adapter Skill description must not contain angle brackets")),
+    false
+  );
+});
+
 test("managed artifact contract excludes canonical and human-owned paths", () => {
   assert.equal(managedOwnershipForPath("AGENTS.md"), "region");
   assert.equal(managedOwnershipForPath(".ai/rules/security.md"), "file");
