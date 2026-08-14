@@ -173,6 +173,11 @@ mode:
 - `region`: Gongxu owns only its bounded marker region.
 - `human`: Gongxu must not write the path.
 
+The manifest may claim only paths produced by the current Gongxu renderer.
+Arbitrary repository files, `.ai/blueprint.json`,
+`.ai/architecture/decisions/`, and `.ai/memory/` are never valid managed-file
+claims, even when a manifest entry contains their current hash.
+
 The compiler must stop on drift in a managed file or region.
 `--force-path <relative-path>` is an exact-path override, never an automatic or
 directory-wide repair strategy.

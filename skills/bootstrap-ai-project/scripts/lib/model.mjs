@@ -16,6 +16,19 @@ export const HUMAN_OWNED_PATHS = Object.freeze([
   ".ai/memory/",
 ]);
 const RESERVED_MARKERS = ["<!-- gongxu:begin -->", "<!-- gongxu:end -->"];
+const MANAGED_REGION_PATHS = new Set(["AGENTS.md", "CLAUDE.md"]);
+const MANAGED_FILE_PATHS = new Set([
+  ".ai/project/profile.md",
+  ".ai/project/facts.json",
+  ".ai/project/repo-map.md",
+  ".ai/architecture/current.md",
+  ".ai/architecture/model.json",
+  ".ai/architecture/boundaries.md",
+  ".ai/rules/catalog.json",
+  ".ai/examples/catalog.json",
+  ".ai/verification/checks.json",
+  ".ai/verification/run.mjs",
+]);
 
 function isObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -27,6 +40,25 @@ function nonEmpty(value) {
 
 function validId(value) {
   return nonEmpty(value) && value.length <= 80 && ID_PATTERN.test(value);
+}
+
+export function managedOwnershipForPath(path) {
+  if (typeof path !== "string") return null;
+  if (MANAGED_REGION_PATHS.has(path)) return "region";
+  if (MANAGED_FILE_PATHS.has(path)) return "file";
+
+  const rule = path.match(/^\.ai\/rules\/([a-z]+)\.md$/);
+  if (rule && RULE_SCOPES.has(rule[1])) return "file";
+  for (const pattern of [
+    /^\.ai\/skills\/([^/]+)\/SKILL\.md$/,
+    /^\.ai\/workflows\/([^/]+)\.md$/,
+    /^\.agents\/skills\/gongxu-([^/]+)\/SKILL\.md$/,
+    /^\.claude\/skills\/gongxu-([^/]+)\/SKILL\.md$/,
+  ]) {
+    const match = path.match(pattern);
+    if (match && validId(match[1])) return "file";
+  }
+  return null;
 }
 
 function checkObjectShape(value, path, required, allowed, errors) {

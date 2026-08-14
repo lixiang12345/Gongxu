@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import {
   appendFileSync,
   chmodSync,
@@ -260,6 +261,31 @@ test("validator enforces the complete manifest contract", (t) => {
   assert.ok(report.errors.includes("Manifest humanOwnedPaths do not match the Gongxu ownership contract."));
   assert.ok(report.errors.includes("manifest.unexpected is not supported."));
   assert.ok(report.errors.some((error) => error.includes("managedFiles[0].unexpected is not supported")));
+});
+
+test("compiler and validator reject manifest claims on user-owned files", (t) => {
+  const { fixture, blueprintPath } = initialize(t);
+  const userFilePath = join(fixture.root, "package.json");
+  const userFile = readFileSync(userFilePath, "utf8");
+  const manifestPath = join(fixture.root, ".ai/manifest.json");
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  manifest.managedFiles.push({
+    path: "package.json",
+    ownership: "file",
+    sha256: createHash("sha256").update(userFile).digest("hex"),
+  });
+  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+
+  const validation = runNode(validateScript, [fixture.root]);
+  assert.equal(validation.status, 1);
+  assert.ok(parseJsonOutput(validation).errors.some((error) =>
+    error.includes("not a supported Gongxu managed artifact: package.json")
+  ));
+
+  const compile = compileFixture(fixture, blueprintPath);
+  assert.equal(compile.status, 1);
+  assert.match(compile.stderr, /claims an unsupported managed artifact: package\.json/);
+  assert.equal(readFileSync(userFilePath, "utf8"), userFile);
 });
 
 test("verification runner refuses a cwd redirected outside the repository", (t) => {

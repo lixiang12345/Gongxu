@@ -4,7 +4,10 @@ import { appendFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
-import { validateBlueprint } from "../skills/bootstrap-ai-project/scripts/lib/model.mjs";
+import {
+  managedOwnershipForPath,
+  validateBlueprint,
+} from "../skills/bootstrap-ai-project/scripts/lib/model.mjs";
 import {
   cleanupFixture,
   createFixture,
@@ -50,6 +53,17 @@ test("blueprint schema rejects empty source revisions", () => {
 
   assert.deepEqual(sourceRevision.type, ["string", "null"]);
   assert.equal(sourceRevision.minLength, 1);
+});
+
+test("managed artifact contract excludes canonical and human-owned paths", () => {
+  assert.equal(managedOwnershipForPath("AGENTS.md"), "region");
+  assert.equal(managedOwnershipForPath(".ai/rules/security.md"), "file");
+  assert.equal(managedOwnershipForPath(".ai/skills/change-api/SKILL.md"), "file");
+  assert.equal(managedOwnershipForPath(".agents/skills/gongxu-change-api/SKILL.md"), "file");
+  assert.equal(managedOwnershipForPath("README.md"), null);
+  assert.equal(managedOwnershipForPath(".ai/blueprint.json"), null);
+  assert.equal(managedOwnershipForPath(".ai/architecture/decisions/001.md"), null);
+  assert.equal(managedOwnershipForPath(".ai/memory/session.json"), null);
 });
 
 test("validator enforces evidence status provenance", (t) => {

@@ -13,6 +13,7 @@ import {
   GENERATOR_NAME,
   HUMAN_OWNED_PATHS,
   SCHEMA_VERSION,
+  managedOwnershipForPath,
   validateBlueprint,
 } from "./lib/model.mjs";
 import { renderArtifacts } from "./lib/render.mjs";
@@ -170,6 +171,15 @@ function main() {
     }
     if (!entry || typeof entry.path !== "string" || !new Set(["file", "region"]).has(entry.ownership) || !/^[a-f0-9]{64}$/.test(entry.sha256)) {
       errors.push(`${path} is invalid.`);
+      continue;
+    }
+    const expectedOwnership = managedOwnershipForPath(entry.path);
+    if (!expectedOwnership) {
+      errors.push(`${path}.path is not a supported Gongxu managed artifact: ${entry.path}`);
+      continue;
+    }
+    if (entry.ownership !== expectedOwnership) {
+      errors.push(`${path}.ownership for ${entry.path} must be ${expectedOwnership}.`);
       continue;
     }
     if (seenManifestPaths.has(entry.path)) {

@@ -26,6 +26,7 @@ import {
   GENERATOR_VERSION,
   HUMAN_OWNED_PATHS,
   SCHEMA_VERSION,
+  managedOwnershipForPath,
   validateBlueprint,
 } from "./lib/model.mjs";
 import { renderArtifacts } from "./lib/render.mjs";
@@ -79,6 +80,11 @@ function loadManifest(root) {
   for (const entry of manifest.managedFiles) {
     if (!entry || typeof entry.path !== "string" || !new Set(["file", "region"]).has(entry.ownership) || !/^[a-f0-9]{64}$/.test(entry.sha256)) {
       throw new Error("Existing manifest contains an invalid managedFiles entry.");
+    }
+    const expectedOwnership = managedOwnershipForPath(entry.path);
+    if (!expectedOwnership) throw new Error(`Existing manifest claims an unsupported managed artifact: ${entry.path}.`);
+    if (entry.ownership !== expectedOwnership) {
+      throw new Error(`Existing manifest ownership for ${entry.path} must be ${expectedOwnership}.`);
     }
     if (seen.has(entry.path)) throw new Error(`Existing manifest contains duplicate managed path: ${entry.path}`);
     resolveInside(root, entry.path);
@@ -291,11 +297,17 @@ function planActions(root, rendered, manifest, forcePaths) {
 function buildManifest(blueprint, rendered, generatedAt) {
   const managedFiles = [...rendered.values()]
     .filter((artifact) => artifact.ownership !== "source")
-    .map((artifact) => ({
-      path: artifact.path,
-      ownership: artifact.ownership,
-      sha256: hashOwnedContent(artifact.content, artifact.ownership),
-    }))
+    .map((artifact) => {
+      const expectedOwnership = managedOwnershipForPath(artifact.path);
+      if (expectedOwnership !== artifact.ownership) {
+        throw new Error(`Renderer produced an unsupported managed artifact: ${artifact.path}.`);
+      }
+      return {
+        path: artifact.path,
+        ownership: artifact.ownership,
+        sha256: hashOwnedContent(artifact.content, artifact.ownership),
+      };
+    })
     .sort((a, b) => a.path.localeCompare(b.path));
 
   return {
