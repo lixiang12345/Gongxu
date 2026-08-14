@@ -28,3 +28,5 @@ jobs:
         run: npm test
       - name: Validate Agent Skill package
         run: npm run validate:skill
+      - name: Build Codex Plugin package
+        run: npm run package:plugin

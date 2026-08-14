@@ -9,6 +9,7 @@ export const skillRoot = join(repositoryRoot, "skills/bootstrap-ai-project");
 export const inspectScript = join(skillRoot, "scripts/inspect-project.mjs");
 export const compileScript = join(skillRoot, "scripts/compile-project.mjs");
 export const validateScript = join(skillRoot, "scripts/validate-project.mjs");
+export const packagePluginScript = join(repositoryRoot, "scripts/package-plugin.mjs");
 
 export function createFixture(name) {
   const temporary = mkdtempSync(join(tmpdir(), "gongxu-test-"));

@@ -64,6 +64,19 @@ blueprint, and then compile and validate the generated system. It will not
 adopt an existing unowned `.ai/` directory or overwrite managed drift without
 an exact `--force-path` approved by the user.
 
+## Build The Plugin
+
+Create a distributable Codex Plugin without duplicating the canonical Skill in
+source control:
+
+```bash
+npm run package:plugin
+```
+
+The command assembles `dist/gongxu/` with `.codex-plugin/plugin.json` and a
+copy of `skills/bootstrap-ai-project/`. An unchanged package is idempotent; a
+drifted output is preserved unless the command is rerun with `--force`.
+
 ## Generated Contract
 
 `.ai/blueprint.json` is the canonical structured source. Generated Markdown,

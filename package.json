@@ -10,6 +10,7 @@
   "scripts": {
     "test": "node --test",
     "inspect:self": "node skills/bootstrap-ai-project/scripts/inspect-project.mjs .",
+    "package:plugin": "node scripts/package-plugin.mjs",
     "validate:skill": "node scripts/validate-skill.mjs skills/bootstrap-ai-project"
   },
   "license": "Apache-2.0"
