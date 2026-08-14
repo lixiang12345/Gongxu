@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { appendFileSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { appendFileSync, chmodSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { delimiter, join } from "node:path";
 import test from "node:test";
 
 import {
@@ -73,9 +73,79 @@ test("inspector reports when Git HEAD does not capture working-tree contents", (
   const report = parseJsonOutput(result);
 
   assert.equal(report.git.dirty, true);
+  assert.equal(report.git.statusAvailable, true);
   assert.ok(report.git.status.some((line) => line.includes("docs/architecture.md")));
   assert.ok(report.warnings.includes(
     "Git working tree has uncommitted changes; git.head does not uniquely identify inspected contents."
+  ));
+});
+
+test("inspector scopes Git status to a nested target", (t) => {
+  const fixture = createFixture("node-monorepo");
+  t.after(() => cleanupFixture(fixture));
+  const siblingPath = join(fixture.temporary, "outside-target.txt");
+  writeFileSync(siblingPath, "tracked sibling\n");
+  git(fixture.temporary, ["init", "--quiet"]);
+  git(fixture.temporary, ["add", "."]);
+  git(fixture.temporary, [
+    "-c", "user.name=Gongxu Tests",
+    "-c", "user.email=gongxu-tests@example.invalid",
+    "commit", "--quiet", "-m", "parent repository",
+  ]);
+  appendFileSync(siblingPath, "outside-only change\n");
+
+  const outsideOnly = runNode(inspectScript, [fixture.root]);
+  assert.equal(outsideOnly.status, 0, outsideOnly.stderr);
+  const cleanTarget = parseJsonOutput(outsideOnly);
+  assert.equal(cleanTarget.git.repository, true);
+  assert.equal(cleanTarget.git.root, git(fixture.root, ["rev-parse", "--show-toplevel"]));
+  assert.equal(cleanTarget.git.statusAvailable, true);
+  assert.equal(cleanTarget.git.dirty, false);
+  assert.deepEqual(cleanTarget.git.status, []);
+  assert.equal(outsideOnly.stdout.includes("outside-target.txt"), false);
+  assert.equal(cleanTarget.warnings.some((warning) => warning.includes("uncommitted changes")), false);
+
+  appendFileSync(join(fixture.root, "docs/architecture.md"), "\nTarget-local change.\n");
+  const insideChange = runNode(inspectScript, [fixture.root]);
+  assert.equal(insideChange.status, 0, insideChange.stderr);
+  const dirtyTarget = parseJsonOutput(insideChange);
+  assert.equal(dirtyTarget.git.dirty, true);
+  assert.deepEqual(dirtyTarget.git.status, [" M docs/architecture.md"]);
+  assert.equal(insideChange.stdout.includes("outside-target.txt"), false);
+});
+
+test("inspector distinguishes Git status failure from a clean tree", (t) => {
+  const fixture = createFixture("python-service");
+  t.after(() => cleanupFixture(fixture));
+  const fakeBin = join(fixture.temporary, "fake-bin");
+  const fakeGit = join(fakeBin, "git");
+  mkdirSync(fakeBin);
+  writeFileSync(fakeGit, `#!/usr/bin/env node
+
+const args = process.argv.slice(2);
+if (args.includes("status")) process.exit(2);
+if (args.includes("--show-toplevel")) process.stdout.write(process.env.GONGXU_FAKE_GIT_ROOT + "\\n");
+else if (args.includes("--show-prefix")) process.stdout.write("");
+else if (args.includes("HEAD")) process.stdout.write("0123456789abcdef0123456789abcdef01234567\\n");
+else if (args.includes("--show-current")) process.stdout.write("main\\n");
+else process.exit(2);
+`);
+  chmodSync(fakeGit, 0o755);
+
+  const result = runNode(inspectScript, [fixture.root], {
+    env: {
+      GONGXU_FAKE_GIT_ROOT: fixture.root,
+      PATH: `${fakeBin}${delimiter}${process.env.PATH}`,
+    },
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const report = parseJsonOutput(result);
+  assert.equal(report.git.repository, true);
+  assert.equal(report.git.statusAvailable, false);
+  assert.equal(report.git.dirty, null);
+  assert.equal(report.git.status, null);
+  assert.ok(report.warnings.includes(
+    "Git working tree status could not be inspected; inspected contents may not match git.head."
   ));
 });
 

@@ -129,6 +129,8 @@ branch name, abbreviated hash, or guessed revision.
 When `git.dirty` is true, retain the exact HEAD and report that it does not
 uniquely identify the inspected working-tree contents. Do not treat dirty state
 alone as proof that a specific fact is stale.
+When `git.statusAvailable` is false, treat working-tree state as unknown rather
+than clean and report the inspector warning.
 
 Use a temporary directory from the operating system. Do not leave interview
 scratch files in the target repository.
