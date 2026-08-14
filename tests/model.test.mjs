@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { appendFileSync, readFileSync } from "node:fs";
+import { appendFileSync, readFileSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
@@ -180,12 +180,34 @@ test("validator resolves file provenance to the exact verification command", (t)
   });
   assert.ok(missingPointer.errors.some((error) => error.includes("must identify an exact line or JSON value")));
 
-  appendFileSync(join(fixture.root, ".github/workflows/ci.yml"), "      - run: |\n          npm test\n");
+  appendFileSync(
+    join(fixture.root, ".github/workflows/ci.yml"),
+    "      - run: |\n          npm test\n      - run: |\n          npm ci\n          npm test\n"
+  );
   const blockHeader = validateMutation(fixture, (blueprint) => {
     blueprint.verification[0].command = "|";
     blueprint.verification[0].source.pointer = "line:14";
   });
   assert.ok(blockHeader.errors.some((error) => error.includes("does not resolve to the exact command \"|\"")));
+
+  const singleCommandBlock = validateMutation(fixture, (blueprint) => {
+    blueprint.verification[0].source.pointer = "line:15";
+  });
+  assert.deepEqual(singleCommandBlock, { errors: [], warnings: [] });
+
+  const multiCommandBlock = validateMutation(fixture, (blueprint) => {
+    blueprint.verification[0].command = "npm ci";
+    blueprint.verification[0].source.pointer = "line:17";
+  });
+  assert.ok(multiCommandBlock.errors.some((error) => error.includes("does not resolve to the exact command \"npm ci\"")));
+
+  symlinkSync(".github/workflows/ci.yml", join(fixture.root, "ci-workflow.yml"));
+  const aliasedMultiCommandBlock = validateMutation(fixture, (blueprint) => {
+    blueprint.verification[0].command = "npm ci";
+    blueprint.verification[0].source.path = "ci-workflow.yml";
+    blueprint.verification[0].source.pointer = "line:17";
+  });
+  assert.ok(aliasedMultiCommandBlock.errors.some((error) => error.includes("does not resolve to the exact command \"npm ci\"")));
 
   const scriptBody = validateMutation(fixture, (blueprint) => {
     blueprint.verification[0].command = "node --test apps/web/specs/*.fixture.mjs services/api/specs/*.fixture.mjs";

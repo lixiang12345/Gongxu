@@ -1,6 +1,8 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
-import { resolve, sep } from "node:path";
+import { relative, resolve, sep } from "node:path";
+
+import { extractCiRunCommands } from "./ci-commands.mjs";
 
 export const GENERATOR_NAME = "gongxu";
 export const GENERATOR_VERSION = "0.1.0";
@@ -162,6 +164,17 @@ function commandAtFilePointer(root, relativePath, pointer) {
 
   const linePointer = pointer.match(/^line:([1-9][0-9]*)$/);
   if (linePointer) {
+    let canonicalPath;
+    try {
+      canonicalPath = relative(realpathSync(root), realpathSync(resolve(root, relativePath))).split(sep).join("/");
+    } catch {
+      return null;
+    }
+    if (/^\.github\/workflows\/[^/]+\.ya?ml$/.test(canonicalPath)) {
+      const candidate = extractCiRunCommands(relativePath, content).candidates
+        .find((item) => item.source.pointer === pointer);
+      return candidate?.command ?? null;
+    }
     const line = content.split(/\r?\n/)[Number(linePointer[1]) - 1];
     return line === undefined ? null : commandFromLine(line);
   }

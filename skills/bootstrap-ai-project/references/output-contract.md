@@ -166,6 +166,9 @@ must resolve to the exact command. Use `line:<1-based-line-number>` for a
 command-bearing line, a dotted key such as `scripts.test` for JSON, or an RFC
 6901 JSON Pointer such as `/scripts/test`. A package script value proves its
 script body, not a package-manager invocation assembled from other signals.
+In GitHub Actions, an inline `run` value or the sole non-comment line of a
+supported `run` block can back a check. A line selected from a multi-command
+block cannot back an independent verification command.
 For `interview` provenance, `source.path` references an `evidence.answers` entry
 whose trimmed answer is exactly the confirmed command.
 

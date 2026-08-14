@@ -4,6 +4,8 @@ import { execFileSync } from "node:child_process";
 import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { basename, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
+import { extractCiRunCommands } from "./lib/ci-commands.mjs";
+
 const SCANNER_VERSION = "0.1.0";
 const MAX_FILES = 20_000;
 const MAX_READ_BYTES = 1_000_000;
@@ -393,67 +395,15 @@ function findMatches(paths, patterns, limit = 200) {
   return paths.filter((path) => patterns.some((pattern) => pattern.test(path))).slice(0, limit);
 }
 
-function parseCiRunLine(line) {
-  const match = line.match(/^(\s*)(-\s+)?run:\s*(.*?)\s*$/);
-  if (!match) return null;
-  return {
-    keyIndent: match[1].length + (match[2]?.length || 0),
-    value: match[3],
-  };
-}
-
-function blockScalarKind(value) {
-  const normalized = value.replace(/\s+#.*$/, "").trim();
-  if (!normalized.startsWith("|") && !normalized.startsWith(">")) return null;
-  return /^[|>](?:(?:[1-9][+-]?)|(?:[+-][1-9]?))?$/.test(normalized) ? "supported" : "unsupported";
-}
-
 function extractCiCommands(root, ciPaths) {
   const candidates = [];
   const warnings = [];
   for (const path of ciPaths) {
     const content = readAllowed(root, path);
     if (!content) continue;
-    const lines = content.split(/\r?\n/);
-    for (let index = 0; index < lines.length; index += 1) {
-      const run = parseCiRunLine(lines[index]);
-      if (!run || !run.value) continue;
-      const runLine = index + 1;
-      const scalarKind = blockScalarKind(run.value);
-      if (scalarKind === null) {
-        candidates.push({
-          command: run.value.replace(/^['"]|['"]$/g, ""),
-          status: "observed",
-          source: { path, pointer: `line:${index + 1}`, note: "CI run command" },
-        });
-        continue;
-      }
-
-      const commands = [];
-      let cursor = index + 1;
-      for (; cursor < lines.length; cursor += 1) {
-        const line = lines[cursor];
-        const trimmed = line.trim();
-        if (trimmed.length === 0) continue;
-        const indentation = line.match(/^ */)?.[0].length || 0;
-        if (indentation <= run.keyIndent) break;
-        if (trimmed.startsWith("#")) continue;
-        commands.push({ command: trimmed, line: cursor + 1 });
-      }
-      index = cursor - 1;
-
-      if (scalarKind === "unsupported") {
-        warnings.push(`Unsupported CI run block header at ${path}:line:${runLine}; inspect the source manually.`);
-      } else if (commands.length === 1) {
-        candidates.push({
-          command: commands[0].command,
-          status: "observed",
-          source: { path, pointer: `line:${commands[0].line}`, note: "Single-command CI run block" },
-        });
-      } else {
-        warnings.push(`CI run block at ${path}:line:${runLine} is not one exact command; inspect the source manually.`);
-      }
-    }
+    const result = extractCiRunCommands(path, content);
+    candidates.push(...result.candidates);
+    warnings.push(...result.warnings);
   }
   return { candidates: candidates.slice(0, 100), warnings };
 }
