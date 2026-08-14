@@ -209,6 +209,27 @@ test("validator enforces the complete manifest contract", (t) => {
   assert.ok(report.errors.some((error) => error.includes("managedFiles[0].unexpected is not supported")));
 });
 
+test("verification runner refuses a cwd redirected outside the repository", (t) => {
+  const fixture = createFixture("node-monorepo");
+  t.after(() => cleanupFixture(fixture));
+  const blueprint = loadBlueprint();
+  blueprint.verification[0].cwd = "apps/web";
+  blueprint.verification[0].command = "node -e \"require('node:fs').writeFileSync('executed.txt','yes')\"";
+  const blueprintPath = writeBlueprint(fixture, blueprint);
+  const compile = compileFixture(fixture, blueprintPath);
+  assert.equal(compile.status, 0, compile.stderr || compile.stdout);
+
+  const outside = join(fixture.temporary, "outside-check-directory");
+  mkdirSync(outside);
+  rmSync(join(fixture.root, "apps/web"), { recursive: true });
+  symlinkSync(outside, join(fixture.root, "apps/web"));
+
+  const runner = runNode(join(fixture.root, ".ai/verification/run.mjs"), ["--check", "project-test"], { cwd: fixture.root });
+  assert.equal(runner.status, 1);
+  assert.match(runner.stderr, /working directory resolves outside the repository/);
+  assert.equal(existsSync(join(outside, "executed.txt")), false);
+});
+
 test("compiler refuses unowned AI content, wrapper collisions, and symlink traversal", async (t) => {
   await t.test("unowned .ai content", (t) => {
     const fixture = createFixture("node-monorepo");

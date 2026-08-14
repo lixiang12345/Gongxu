@@ -282,12 +282,12 @@ maintain independent instructions in this adapter.
 const VERIFICATION_RUNNER = `#!/usr/bin/env node
 
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { readFileSync, realpathSync, statSync } from "node:fs";
+import { dirname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const verificationDirectory = dirname(fileURLToPath(import.meta.url));
-const repositoryRoot = resolve(verificationDirectory, "../..");
+const repositoryRoot = realpathSync(resolve(verificationDirectory, "../.."));
 const checks = JSON.parse(readFileSync(resolve(verificationDirectory, "checks.json"), "utf8"));
 const selectedIndex = process.argv.indexOf("--check");
 const selectedId = selectedIndex >= 0 ? process.argv[selectedIndex + 1] : null;
@@ -307,8 +307,20 @@ if (selectedId && selected.length === 0) {
 let requiredFailure = false;
 for (const check of selected) {
   process.stdout.write(\`\\n[gongxu] \${check.id}: \${check.command}\\n\`);
+  let checkDirectory;
+  try {
+    checkDirectory = realpathSync(resolve(repositoryRoot, check.cwd || "."));
+    if (checkDirectory !== repositoryRoot && !checkDirectory.startsWith(\`\${repositoryRoot}\${sep}\`)) {
+      throw new Error("working directory resolves outside the repository");
+    }
+    if (!statSync(checkDirectory).isDirectory()) throw new Error("working directory is not a directory");
+  } catch (error) {
+    process.stderr.write(\`[gongxu] \${check.id}: FAIL (\${error.message})\\n\`);
+    if (check.required) requiredFailure = true;
+    continue;
+  }
   const result = spawnSync(check.command, {
-    cwd: resolve(repositoryRoot, check.cwd || "."),
+    cwd: checkDirectory,
     env: process.env,
     shell: true,
     stdio: "inherit",
