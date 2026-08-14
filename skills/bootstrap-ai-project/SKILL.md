@@ -62,6 +62,10 @@ Treat each verification candidate according to its `status`. A command marked
 exact manifest or CI reference, or confirm it with the user, before recording
 it as an observed or confirmed verification check.
 
+Review inspector warnings for CI run blocks that cannot be represented as one
+exact command. Read those source lines directly; do not flatten or split a
+multi-command shell block into invented verification checks.
+
 If Gongxu already exists, run:
 
 ```bash

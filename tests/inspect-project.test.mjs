@@ -130,3 +130,45 @@ test("inspector reports conflicting package manager evidence without choosing on
     "Conflicting package manager evidence found (npm, pnpm); package-script commands were not generated."
   ));
 });
+
+test("inspector extracts only exact single-command CI run blocks", (t) => {
+  const fixture = createFixture("python-service");
+  t.after(() => cleanupFixture(fixture));
+  writeFileSync(join(fixture.root, ".github/workflows/ci.yml"), `name: ci
+
+on: pull_request
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |-
+          npm test
+        shell: bash
+      - run: |
+          npm ci
+          npm run test:e2e
+      - run: |0
+          run: must-not-be-detected
+`);
+
+  const result = runNode(inspectScript, [fixture.root]);
+  assert.equal(result.status, 0, result.stderr);
+  const report = parseJsonOutput(result);
+
+  assert.ok(report.verificationCandidates.some((check) =>
+    check.command === "npm test"
+      && check.status === "observed"
+      && check.source.pointer === "line:10"
+  ));
+  assert.equal(report.verificationCandidates.some((check) => check.command === "|-"), false);
+  assert.equal(report.verificationCandidates.some((check) => check.command === "npm ci"), false);
+  assert.equal(report.verificationCandidates.some((check) => check.command === "npm run test:e2e"), false);
+  assert.equal(report.verificationCandidates.some((check) => check.command === "must-not-be-detected"), false);
+  assert.ok(report.warnings.some((warning) =>
+    warning.includes("ci.yml:line:12") && warning.includes("is not one exact command")
+  ));
+  assert.ok(report.warnings.some((warning) =>
+    warning.includes("ci.yml:line:15") && warning.includes("Unsupported CI run block header")
+  ));
+});
