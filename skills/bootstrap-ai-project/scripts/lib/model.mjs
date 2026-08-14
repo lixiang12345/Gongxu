@@ -3,6 +3,7 @@ import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { relative, resolve, sep } from "node:path";
 
 import { extractCiRunCommands } from "./ci-commands.mjs";
+import { isManagedRegionOnlyChange, resolveInside } from "./files.mjs";
 
 export const GENERATOR_NAME = "gongxu";
 export const GENERATOR_VERSION = "0.1.0";
@@ -18,6 +19,7 @@ export const HUMAN_OWNED_PATHS = Object.freeze([
   ".ai/memory/",
 ]);
 const RESERVED_MARKERS = ["<!-- gongxu:begin -->", "<!-- gongxu:end -->"];
+const GONGXU_STATE_PATHS = new Set([".ai/blueprint.json", ".ai/manifest.json"]);
 const MANAGED_REGION_PATHS = new Set(["AGENTS.md", "CLAUDE.md"]);
 const MANAGED_FILE_PATHS = new Set([
   ".ai/project/profile.md",
@@ -120,6 +122,78 @@ function currentGitRevision(root) {
   } catch {
     return null;
   }
+}
+
+function gitOptions(root) {
+  return {
+    cwd: root,
+    encoding: "utf8",
+    maxBuffer: 10 * 1024 * 1024,
+    stdio: ["ignore", "pipe", "ignore"],
+  };
+}
+
+function currentGitWorktreeChanges(root) {
+  const options = gitOptions(root);
+  try {
+    const prefix = execFileSync("git", ["rev-parse", "--show-prefix"], options).replace(/\r?\n$/, "");
+    const tracked = execFileSync(
+      "git",
+      ["diff", "--name-only", "--relative", "-z", "HEAD", "--"],
+      options
+    );
+    const untracked = execFileSync(
+      "git",
+      ["ls-files", "--others", "--exclude-standard", "-z", "--"],
+      options
+    );
+    const changes = new Map();
+    for (const path of tracked.split("\0").filter(Boolean)) changes.set(path, { path, tracked: true });
+    for (const path of untracked.split("\0").filter(Boolean)) {
+      if (!changes.has(path)) changes.set(path, { path, tracked: false });
+    }
+    return {
+      prefix,
+      changes: [...changes.values()].sort((a, b) => a.path.localeCompare(b.path)),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function isGongxuOnlyWorktreeChange(root, prefix, change) {
+  if (GONGXU_STATE_PATHS.has(change.path)) return true;
+  const ownership = managedOwnershipForPath(change.path);
+  if (ownership === "file") return true;
+  if (ownership !== "region") return false;
+
+  let before = null;
+  if (change.tracked) {
+    try {
+      before = execFileSync("git", ["show", `HEAD:${prefix}${change.path}`], gitOptions(root));
+    } catch {
+      return false;
+    }
+  }
+  let after = null;
+  try {
+    const absolute = resolveInside(root, change.path);
+    if (existsSync(absolute)) after = readFileSync(absolute, "utf8");
+  } catch {
+    return false;
+  }
+  try {
+    return isManagedRegionOnlyChange(before, after);
+  } catch {
+    return false;
+  }
+}
+
+function worktreeFreshnessWarning(paths) {
+  const displayed = paths.slice(0, 10).map((path) => JSON.stringify(path));
+  const remainder = paths.length - displayed.length;
+  const suffix = remainder > 0 ? `, and ${remainder} more` : "";
+  return `Git worktree has uncommitted repository changes not captured by evidence.sourceRevision: ${displayed.join(", ")}${suffix}.`;
 }
 
 function unquoteCommand(value) {
@@ -342,6 +416,17 @@ function validateEvidence(ledger, root, answerIds, errors, warnings) {
       warnings.push(`evidence.sourceRevision is missing; current Git HEAD is ${currentRevision}.`);
     } else if (currentRevision && ledger.sourceRevision !== currentRevision) {
       warnings.push(`evidence.sourceRevision ${ledger.sourceRevision} differs from current Git HEAD ${currentRevision}; refresh repository evidence before adding new rules.`);
+    }
+    if (currentRevision) {
+      const worktree = currentGitWorktreeChanges(root);
+      if (worktree === null) {
+        warnings.push("Git worktree changes could not be inspected for evidence freshness.");
+      } else {
+        const repositoryChanges = worktree.changes
+          .filter((change) => !isGongxuOnlyWorktreeChange(root, worktree.prefix, change))
+          .map((change) => change.path);
+        if (repositoryChanges.length > 0) warnings.push(worktreeFreshnessWarning(repositoryChanges));
+      }
     }
   }
   return facts;

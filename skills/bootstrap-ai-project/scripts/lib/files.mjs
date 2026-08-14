@@ -39,6 +39,12 @@ export function managedBlock(content) {
   return `${MANAGED_BEGIN}\n${content.trim()}\n${MANAGED_END}`;
 }
 
+function appendManagedBlock(existing, block) {
+  if (existing === null || existing.length === 0) return `${block}\n`;
+  const separator = existing.endsWith("\n") ? "\n" : "\n\n";
+  return `${existing}${separator}${block}\n`;
+}
+
 export function extractManagedBlock(content) {
   const start = content.indexOf(MANAGED_BEGIN);
   const end = content.indexOf(MANAGED_END);
@@ -52,13 +58,32 @@ export function extractManagedBlock(content) {
 
 export function mergeManagedBlock(existing, body) {
   const block = managedBlock(body);
-  if (existing === null || existing.length === 0) return `${block}\n`;
+  if (existing === null || existing.length === 0) return appendManagedBlock(existing, block);
   const currentBlock = extractManagedBlock(existing);
-  if (currentBlock === null) {
-    const separator = existing.endsWith("\n") ? "\n" : "\n\n";
-    return `${existing}${separator}${block}\n`;
-  }
+  if (currentBlock === null) return appendManagedBlock(existing, block);
   return existing.replace(currentBlock, block);
+}
+
+export function removeManagedRegion(content) {
+  const block = extractManagedBlock(content);
+  if (block === null) return content;
+  const result = content.replace(block, "");
+  return result.trim().length > 0 ? result : "";
+}
+
+export function isManagedRegionOnlyChange(before, after) {
+  const beforeContent = before ?? "";
+  const afterContent = after ?? "";
+  if (beforeContent === afterContent) return false;
+
+  const beforeBlock = before === null ? null : extractManagedBlock(beforeContent);
+  const afterBlock = after === null ? null : extractManagedBlock(afterContent);
+  if (beforeBlock !== null && afterBlock !== null) {
+    return beforeContent.replace(beforeBlock, afterBlock) === afterContent;
+  }
+  if (beforeBlock !== null) return removeManagedRegion(beforeContent) === afterContent;
+  if (afterBlock !== null) return appendManagedBlock(before, afterBlock) === afterContent;
+  return false;
 }
 
 export function hashOwnedContent(content, ownership) {

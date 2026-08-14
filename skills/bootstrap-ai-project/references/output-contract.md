@@ -88,6 +88,12 @@ ledger, or `null` when no revision is available. A later HEAD mismatch is an
 evidence-freshness warning rather than a hard error because the blueprint's own
 commit necessarily advances the repository.
 
+Uncommitted repository changes also produce a freshness warning because HEAD
+does not identify their contents. Gongxu-generated files, managed adapter
+regions, `.ai/blueprint.json`, and `.ai/manifest.json` are excluded from that
+warning; changes outside the markers in an adapter file, human-owned decisions,
+memory, and other project files are not.
+
 ## Fact Contract
 
 Each fact contains:

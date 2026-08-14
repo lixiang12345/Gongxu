@@ -17,6 +17,7 @@ import {
   hashOwnedContent,
   normalizeRelative,
   readTextIfExists,
+  removeManagedRegion,
   resolveInside,
   sha256,
   writeAtomic,
@@ -101,13 +102,6 @@ function assertAdoptableAiDirectory(root, manifest) {
   if (entries.length > 0) {
     throw new Error(".ai already contains user-owned content but has no Gongxu manifest. Import or migrate it explicitly before compiling.");
   }
-}
-
-function removeManagedRegion(content) {
-  const block = extractManagedBlock(content);
-  if (block === null) return content;
-  const result = content.replace(block, "");
-  return result.trim().length > 0 ? result : "";
 }
 
 function currentOwnedHash(root, entry) {

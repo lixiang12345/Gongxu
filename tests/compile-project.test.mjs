@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   appendFileSync,
@@ -27,6 +28,14 @@ import {
   writeBlueprint,
   writeFixtureFile,
 } from "./helpers.mjs";
+
+function git(root, args) {
+  return execFileSync("git", args, {
+    cwd: root,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"],
+  }).trim();
+}
 
 function initialize(t) {
   const fixture = createFixture("node-monorepo");
@@ -99,6 +108,37 @@ test("recompilation is idempotent and preserves user-owned instruction content",
   assert.equal(third.status, 0, third.stderr || third.stdout);
   assert.deepEqual(parseJsonOutput(third).actions, []);
   assert.match(readFixtureFile(fixture, "CLAUDE.md"), /@AGENTS\.md/);
+});
+
+test("recompilation ignores generated dirty state but reports project changes", (t) => {
+  const fixture = createFixture("node-monorepo");
+  t.after(() => cleanupFixture(fixture));
+  git(fixture.root, ["init", "--quiet"]);
+  git(fixture.root, ["add", "."]);
+  git(fixture.root, [
+    "-c", "user.name=Gongxu Tests",
+    "-c", "user.email=gongxu-tests@example.invalid",
+    "commit", "--quiet", "-m", "initial fixture",
+  ]);
+  const blueprint = loadBlueprint();
+  blueprint.evidence.sourceRevision = git(fixture.root, ["rev-parse", "HEAD"]);
+  const blueprintPath = writeBlueprint(fixture, blueprint);
+  const warningPrefix = "Git worktree has uncommitted repository changes not captured by evidence.sourceRevision:";
+
+  const first = compileFixture(fixture, blueprintPath);
+  assert.equal(first.status, 0, first.stderr || first.stdout);
+  assert.equal(parseJsonOutput(first).warnings.some((warning) => warning.startsWith(warningPrefix)), false);
+
+  const second = compileFixture(fixture, blueprintPath);
+  assert.equal(second.status, 0, second.stderr || second.stdout);
+  assert.equal(parseJsonOutput(second).warnings.some((warning) => warning.startsWith(warningPrefix)), false);
+
+  appendFileSync(join(fixture.root, "docs/architecture.md"), "\nUncommitted architecture change.\n");
+  const projectChange = compileFixture(fixture, blueprintPath);
+  assert.equal(projectChange.status, 0, projectChange.stderr || projectChange.stdout);
+  assert.ok(parseJsonOutput(projectChange).warnings.includes(
+    `${warningPrefix} "docs/architecture.md".`
+  ));
 });
 
 test("managed drift requires an exact force path", (t) => {

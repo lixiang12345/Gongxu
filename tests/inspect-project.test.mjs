@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { appendFileSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
@@ -10,6 +11,14 @@ import {
   parseJsonOutput,
   runNode,
 } from "./helpers.mjs";
+
+function git(root, args) {
+  return execFileSync("git", args, {
+    cwd: root,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"],
+  }).trim();
+}
 
 test("inspector identifies a brownfield Node monorepo without reading secrets", (t) => {
   const fixture = createFixture("node-monorepo");
@@ -45,6 +54,29 @@ test("inspector identifies a brownfield Node monorepo without reading secrets", 
   assert.ok(report.verificationCandidates.some((check) => check.command === "npm run test" && check.status === "inferred"));
   assert.ok(report.verificationCandidates.some((check) => check.command === "npm test" && check.status === "observed"));
   assert.equal(report.warnings.includes("Sensitive-looking files were listed but never read."), true);
+});
+
+test("inspector reports when Git HEAD does not capture working-tree contents", (t) => {
+  const fixture = createFixture("node-monorepo");
+  t.after(() => cleanupFixture(fixture));
+  git(fixture.root, ["init", "--quiet"]);
+  git(fixture.root, ["add", "."]);
+  git(fixture.root, [
+    "-c", "user.name=Gongxu Tests",
+    "-c", "user.email=gongxu-tests@example.invalid",
+    "commit", "--quiet", "-m", "initial fixture",
+  ]);
+  appendFileSync(join(fixture.root, "docs/architecture.md"), "\nUncommitted architecture change.\n");
+
+  const result = runNode(inspectScript, [fixture.root]);
+  assert.equal(result.status, 0, result.stderr);
+  const report = parseJsonOutput(result);
+
+  assert.equal(report.git.dirty, true);
+  assert.ok(report.git.status.some((line) => line.includes("docs/architecture.md")));
+  assert.ok(report.warnings.includes(
+    "Git working tree has uncommitted changes; git.head does not uniquely identify inspected contents."
+  ));
 });
 
 test("inspector does not invent an npm package manager for a Python service", (t) => {

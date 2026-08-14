@@ -126,6 +126,10 @@ Set `evidence.sourceRevision` to the inspector's exact `git.head`. Use `null`
 only when the inspector could not resolve a Git revision; do not substitute a
 branch name, abbreviated hash, or guessed revision.
 
+When `git.dirty` is true, retain the exact HEAD and report that it does not
+uniquely identify the inspected working-tree contents. Do not treat dirty state
+alone as proof that a specific fact is stale.
+
 Use a temporary directory from the operating system. Do not leave interview
 scratch files in the target repository.
 

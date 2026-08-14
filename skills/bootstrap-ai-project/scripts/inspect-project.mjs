@@ -533,6 +533,7 @@ function main() {
       ...(walkResult.skippedSensitive.length > 0 ? ["Sensitive-looking files were listed but never read."] : []),
       ...(!gitRoot ? ["Target is not inside a Git repository."] : []),
       ...(gitRoot && !isAbsolute(gitRoot) ? ["Git returned a non-absolute repository root."] : []),
+      ...(gitStatus ? ["Git working tree has uncommitted changes; git.head does not uniquely identify inspected contents."] : []),
       ...packageManager.warnings,
       ...ciInspection.warnings,
     ],

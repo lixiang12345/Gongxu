@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { appendFileSync, readFileSync, symlinkSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
@@ -131,6 +131,60 @@ test("validator reports missing and stale Git source revisions", (t) => {
   blueprint.evidence.sourceRevision = "";
   const empty = validateBlueprint(blueprint, fixture.root);
   assert.ok(empty.errors.includes("evidence.sourceRevision must be a non-empty string or null."));
+});
+
+test("validator reports dirty repository state without flagging Gongxu outputs", (t) => {
+  const fixture = createFixture("node-monorepo");
+  t.after(() => cleanupFixture(fixture));
+  git(fixture.temporary, ["init", "--quiet"]);
+  git(fixture.temporary, ["add", "repository"]);
+  git(fixture.temporary, [
+    "-c", "user.name=Gongxu Tests",
+    "-c", "user.email=gongxu-tests@example.invalid",
+    "commit", "--quiet", "-m", "initial fixture",
+  ]);
+  const blueprint = loadBlueprint();
+  blueprint.evidence.sourceRevision = git(fixture.root, ["rev-parse", "HEAD"]);
+  const warningPrefix = "Git worktree has uncommitted repository changes not captured by evidence.sourceRevision:";
+
+  const architecturePath = join(fixture.root, "docs/architecture.md");
+  const architecture = readFileSync(architecturePath, "utf8");
+  appendFileSync(architecturePath, "\nUncommitted architecture change.\n");
+  const projectChange = validateBlueprint(blueprint, fixture.root);
+  assert.ok(projectChange.warnings.includes(`${warningPrefix} \"docs/architecture.md\".`));
+  writeFileSync(architecturePath, architecture);
+  assert.equal(git(fixture.root, ["status", "--short"]), "");
+
+  mkdirSync(join(fixture.root, ".ai/project"), { recursive: true });
+  writeFileSync(join(fixture.root, ".ai/blueprint.json"), "{}\n");
+  writeFileSync(join(fixture.root, ".ai/manifest.json"), "{}\n");
+  writeFileSync(join(fixture.root, ".ai/project/profile.md"), "generated\n");
+  appendFileSync(join(fixture.root, "AGENTS.md"), "\n<!-- gongxu:begin -->\ngenerated\n<!-- gongxu:end -->\n");
+  const generatedState = validateBlueprint(blueprint, fixture.root);
+  assert.equal(generatedState.warnings.some((warning) => warning.startsWith(warningPrefix)), false);
+
+  git(fixture.temporary, ["add", "repository"]);
+  git(fixture.temporary, [
+    "-c", "user.name=Gongxu Tests",
+    "-c", "user.email=gongxu-tests@example.invalid",
+    "commit", "--quiet", "-m", "generated baseline",
+  ]);
+  blueprint.evidence.sourceRevision = git(fixture.root, ["rev-parse", "HEAD"]);
+  const generatedAgents = readFileSync(join(fixture.root, "AGENTS.md"), "utf8")
+    .replace("\ngenerated\n", "\nregenerated\n");
+  writeFileSync(join(fixture.root, "AGENTS.md"), generatedAgents);
+  const managedRegionChange = validateBlueprint(blueprint, fixture.root);
+  assert.equal(managedRegionChange.warnings.some((warning) => warning.startsWith(warningPrefix)), false);
+
+  appendFileSync(join(fixture.root, "AGENTS.md"), "\nUser-authored suffix.\n");
+  const userAdapterChange = validateBlueprint(blueprint, fixture.root);
+  assert.ok(userAdapterChange.warnings.includes(`${warningPrefix} "AGENTS.md".`));
+  writeFileSync(join(fixture.root, "AGENTS.md"), generatedAgents);
+
+  mkdirSync(join(fixture.root, ".ai/architecture/decisions"), { recursive: true });
+  writeFileSync(join(fixture.root, ".ai/architecture/decisions/001.md"), "Human-owned decision.\n");
+  const humanState = validateBlueprint(blueprint, fixture.root);
+  assert.ok(humanState.warnings.includes(`${warningPrefix} \".ai/architecture/decisions/001.md\".`));
 });
 
 test("validator links command and interview evidence to concrete provenance", (t) => {
