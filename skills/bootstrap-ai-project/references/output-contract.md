@@ -24,6 +24,8 @@ The interview produces one structured source file:
 It must validate against `assets/blueprint.schema.json`. All other managed
 artifacts are deterministic views of this blueprint. Do not manually create a
 different schema or treat generated Markdown as an independent source.
+The compiler and project validator execute the packaged Schema before applying
+repository-aware semantic and provenance checks.
 
 ## Generated Tree
 

@@ -7,6 +7,7 @@ import test from "node:test";
 import {
   managedOwnershipForPath,
   validateBlueprint,
+  validateBlueprintSchema,
 } from "../skills/bootstrap-ai-project/scripts/lib/model.mjs";
 import {
   cleanupFixture,
@@ -35,6 +36,20 @@ test("valid fixture blueprint passes semantic validation", (t) => {
 
   const result = validateBlueprint(loadBlueprint(), fixture.root);
   assert.deepEqual(result, { errors: [], warnings: [] });
+});
+
+test("portable validator executes the packaged blueprint schema", () => {
+  const blueprint = loadBlueprint();
+  blueprint.project.primaryUsers = ["developer", "developer"];
+  blueprint.skills[0].id = "s".repeat(58);
+  delete blueprint.verification[0].source.pointer;
+
+  const errors = validateBlueprintSchema(blueprint);
+  assert.ok(errors.includes("Schema violation at blueprint.project.primaryUsers: items must be unique."));
+  assert.ok(errors.includes("Schema violation at blueprint.skills[0].id: must contain at most 57 characters."));
+  assert.ok(errors.includes(
+    "Schema violation at blueprint.verification[0].source.pointer: required property is missing."
+  ));
 });
 
 test("target architecture schema permits status without weakening additionalProperties", () => {

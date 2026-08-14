@@ -45,6 +45,219 @@ function isObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+const SUPPORTED_SCHEMA_KEYWORDS = new Set([
+  "$schema",
+  "$id",
+  "$defs",
+  "$ref",
+  "title",
+  "type",
+  "const",
+  "enum",
+  "properties",
+  "required",
+  "additionalProperties",
+  "items",
+  "minItems",
+  "uniqueItems",
+  "minLength",
+  "maxLength",
+  "pattern",
+  "minimum",
+  "maximum",
+  "allOf",
+  "if",
+  "then",
+  "else",
+]);
+
+const BLUEPRINT_SCHEMA = JSON.parse(
+  readFileSync(new URL("../../assets/blueprint.schema.json", import.meta.url), "utf8")
+);
+
+function schemaChildPath(path, key) {
+  return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key)
+    ? `${path}.${key}`
+    : `${path}[${JSON.stringify(key)}]`;
+}
+
+function resolveSchemaReference(reference) {
+  if (typeof reference !== "string" || !reference.startsWith("#/")) {
+    throw new Error(`Unsupported JSON Schema reference: ${String(reference)}`);
+  }
+  let schema = BLUEPRINT_SCHEMA;
+  for (const rawSegment of reference.slice(2).split("/")) {
+    const segment = rawSegment.replaceAll("~1", "/").replaceAll("~0", "~");
+    if (!isObject(schema) || !Object.hasOwn(schema, segment)) {
+      throw new Error(`Unresolved JSON Schema reference: ${reference}`);
+    }
+    schema = schema[segment];
+  }
+  return schema;
+}
+
+function inspectSchemaDefinition(schema, path, errors) {
+  if (typeof schema === "boolean") return;
+  if (!isObject(schema)) {
+    errors.push(`${path} must be an object or boolean schema.`);
+    return;
+  }
+  for (const keyword of Object.keys(schema)) {
+    if (!SUPPORTED_SCHEMA_KEYWORDS.has(keyword)) errors.push(`${path} uses unsupported keyword ${keyword}.`);
+  }
+  if (schema.$ref !== undefined) {
+    try {
+      resolveSchemaReference(schema.$ref);
+    } catch (error) {
+      errors.push(`${path}: ${error.message}`);
+    }
+  }
+  for (const mapKeyword of ["$defs", "properties"]) {
+    if (!isObject(schema[mapKeyword])) continue;
+    for (const [key, child] of Object.entries(schema[mapKeyword])) {
+      inspectSchemaDefinition(child, `${path}.${mapKeyword}.${key}`, errors);
+    }
+  }
+  if (schema.items !== undefined) inspectSchemaDefinition(schema.items, `${path}.items`, errors);
+  if (isObject(schema.additionalProperties)) {
+    inspectSchemaDefinition(schema.additionalProperties, `${path}.additionalProperties`, errors);
+  }
+  for (const listKeyword of ["allOf"]) {
+    if (!Array.isArray(schema[listKeyword])) continue;
+    schema[listKeyword].forEach((child, index) => {
+      inspectSchemaDefinition(child, `${path}.${listKeyword}[${index}]`, errors);
+    });
+  }
+  for (const childKeyword of ["if", "then", "else"]) {
+    if (schema[childKeyword] !== undefined) {
+      inspectSchemaDefinition(schema[childKeyword], `${path}.${childKeyword}`, errors);
+    }
+  }
+}
+
+function matchesSchemaType(value, type) {
+  if (type === "null") return value === null;
+  if (type === "object") return isObject(value);
+  if (type === "array") return Array.isArray(value);
+  if (type === "string") return typeof value === "string";
+  if (type === "boolean") return typeof value === "boolean";
+  if (type === "number") return typeof value === "number" && Number.isFinite(value);
+  if (type === "integer") return Number.isInteger(value);
+  return false;
+}
+
+function validateSchemaValue(value, schema, path, errors) {
+  if (schema === true) return;
+  if (schema === false) {
+    errors.push(`Schema violation at ${path}: value is not allowed.`);
+    return;
+  }
+  if (schema.$ref !== undefined) validateSchemaValue(value, resolveSchemaReference(schema.$ref), path, errors);
+  if (schema.const !== undefined && !isDeepStrictEqual(value, schema.const)) {
+    errors.push(`Schema violation at ${path}: must equal ${JSON.stringify(schema.const)}.`);
+  }
+  if (Array.isArray(schema.enum) && !schema.enum.some((item) => isDeepStrictEqual(value, item))) {
+    errors.push(`Schema violation at ${path}: must be one of ${schema.enum.map((item) => JSON.stringify(item)).join(", ")}.`);
+  }
+
+  if (schema.type !== undefined) {
+    const types = Array.isArray(schema.type) ? schema.type : [schema.type];
+    if (!types.some((type) => matchesSchemaType(value, type))) {
+      errors.push(`Schema violation at ${path}: must have type ${types.join(" or ")}.`);
+      return;
+    }
+  }
+
+  if (isObject(value)) {
+    const properties = isObject(schema.properties) ? schema.properties : {};
+    for (const key of Array.isArray(schema.required) ? schema.required : []) {
+      if (!Object.hasOwn(value, key)) {
+        errors.push(`Schema violation at ${schemaChildPath(path, key)}: required property is missing.`);
+      }
+    }
+    for (const [key, child] of Object.entries(properties)) {
+      if (Object.hasOwn(value, key)) validateSchemaValue(value[key], child, schemaChildPath(path, key), errors);
+    }
+    if (schema.additionalProperties === false) {
+      for (const key of Object.keys(value)) {
+        if (!Object.hasOwn(properties, key)) {
+          errors.push(`Schema violation at ${schemaChildPath(path, key)}: property is not allowed.`);
+        }
+      }
+    } else if (isObject(schema.additionalProperties)) {
+      for (const key of Object.keys(value)) {
+        if (!Object.hasOwn(properties, key)) {
+          validateSchemaValue(value[key], schema.additionalProperties, schemaChildPath(path, key), errors);
+        }
+      }
+    }
+  }
+
+  if (Array.isArray(value)) {
+    if (Number.isInteger(schema.minItems) && value.length < schema.minItems) {
+      errors.push(`Schema violation at ${path}: must contain at least ${schema.minItems} items.`);
+    }
+    if (schema.uniqueItems === true) {
+      for (let left = 0; left < value.length; left += 1) {
+        for (let right = left + 1; right < value.length; right += 1) {
+          if (isDeepStrictEqual(value[left], value[right])) {
+            errors.push(`Schema violation at ${path}: items must be unique.`);
+            left = value.length;
+            break;
+          }
+        }
+      }
+    }
+    if (schema.items !== undefined) {
+      value.forEach((item, index) => validateSchemaValue(item, schema.items, `${path}[${index}]`, errors));
+    }
+  }
+
+  if (typeof value === "string") {
+    const length = [...value].length;
+    if (Number.isInteger(schema.minLength) && length < schema.minLength) {
+      errors.push(`Schema violation at ${path}: must contain at least ${schema.minLength} characters.`);
+    }
+    if (Number.isInteger(schema.maxLength) && length > schema.maxLength) {
+      errors.push(`Schema violation at ${path}: must contain at most ${schema.maxLength} characters.`);
+    }
+    if (typeof schema.pattern === "string" && !new RegExp(schema.pattern, "u").test(value)) {
+      errors.push(`Schema violation at ${path}: must match ${JSON.stringify(schema.pattern)}.`);
+    }
+  }
+
+  if (typeof value === "number" && Number.isFinite(value)) {
+    if (typeof schema.minimum === "number" && value < schema.minimum) {
+      errors.push(`Schema violation at ${path}: must be at least ${schema.minimum}.`);
+    }
+    if (typeof schema.maximum === "number" && value > schema.maximum) {
+      errors.push(`Schema violation at ${path}: must be at most ${schema.maximum}.`);
+    }
+  }
+
+  for (const child of Array.isArray(schema.allOf) ? schema.allOf : []) {
+    validateSchemaValue(value, child, path, errors);
+  }
+  if (schema.if !== undefined) {
+    const conditionErrors = [];
+    validateSchemaValue(value, schema.if, path, conditionErrors);
+    const branch = conditionErrors.length === 0 ? schema.then : schema.else;
+    if (branch !== undefined) validateSchemaValue(value, branch, path, errors);
+  }
+}
+
+const schemaDefinitionErrors = [];
+inspectSchemaDefinition(BLUEPRINT_SCHEMA, "blueprint schema", schemaDefinitionErrors);
+if (schemaDefinitionErrors.length > 0) {
+  throw new Error(`Unsupported packaged blueprint schema: ${schemaDefinitionErrors.join(" ")}`);
+}
+
+export function validateBlueprintSchema(blueprint) {
+  const errors = [];
+  validateSchemaValue(blueprint, BLUEPRINT_SCHEMA, "blueprint", errors);
+  return errors;
+}
+
 function arrayItems(value) {
   return Array.isArray(value) ? value : [];
 }
@@ -740,7 +953,7 @@ function validateExamples(examples, root, facts, errors) {
 }
 
 export function validateBlueprint(blueprint, root) {
-  const errors = [];
+  const errors = validateBlueprintSchema(blueprint);
   const warnings = [];
   if (!isObject(blueprint)) return { errors: ["Blueprint must be a JSON object."], warnings };
   const keys = [
