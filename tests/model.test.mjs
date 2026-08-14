@@ -51,6 +51,29 @@ test("validator enforces evidence status provenance", (t) => {
   assert.ok(confirmed.errors.some((error) => error.includes("confirmed fact requires")));
 });
 
+test("validator links command and interview evidence to concrete provenance", (t) => {
+  const fixture = createFixture("node-monorepo");
+  t.after(() => cleanupFixture(fixture));
+
+  const result = validateMutation(fixture, (blueprint) => {
+    const confirmed = blueprint.evidence.facts.find((fact) => fact.id === "product-purpose");
+    confirmed.evidence[0].pointer = "missing-answer";
+    blueprint.evidence.facts[0].evidence.push({
+      kind: "command",
+      note: "A command was reportedly run."
+    });
+    blueprint.verification[0].source = {
+      kind: "interview",
+      path: "missing-answer",
+      note: "The project owner supplied this command."
+    };
+  });
+
+  assert.ok(result.errors.some((error) => error.includes("pointer must reference an evidence.answers id")));
+  assert.ok(result.errors.some((error) => error.includes("pointer must record the observed command")));
+  assert.ok(result.errors.some((error) => error.includes("source.path references unknown interview answer")));
+});
+
 test("validator rejects unsupported fields and malformed nested values without crashing", (t) => {
   const fixture = createFixture("node-monorepo");
   t.after(() => cleanupFixture(fixture));

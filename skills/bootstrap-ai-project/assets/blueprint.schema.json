@@ -85,7 +85,17 @@
         "path": { "type": "string" },
         "pointer": { "type": "string" },
         "note": { "$ref": "#/$defs/nonEmpty" }
-      }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "command" } }, "required": ["kind"] },
+          "then": { "required": ["pointer"], "properties": { "pointer": { "$ref": "#/$defs/nonEmpty" } } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "interview" } }, "required": ["kind"] },
+          "then": { "required": ["pointer"], "properties": { "pointer": { "$ref": "#/$defs/id" } } }
+        }
+      ]
     },
     "fact": {
       "type": "object",

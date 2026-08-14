@@ -132,7 +132,7 @@ function validateProject(project, errors) {
   checkStringArray(project.constraints, "project.constraints", errors);
 }
 
-function validateEvidence(ledger, root, errors, warnings) {
+function validateEvidence(ledger, root, answerIds, errors, warnings) {
   const ledgerKeys = ["sourceRevision", "facts", "unknowns", "answers", "assumptions"];
   if (!checkObjectShape(ledger, "evidence", ledgerKeys, ledgerKeys, errors)) return new Map();
   if (!Array.isArray(ledger.facts)) {
@@ -174,6 +174,10 @@ function validateEvidence(ledger, root, errors, warnings) {
         if (!nonEmpty(record.path) || !pathExists(root, record.path)) {
           errors.push(`${recordPath}.path does not exist: ${record.path ?? "<missing>"}`);
         }
+      } else if (record.kind === "command" && !nonEmpty(record.pointer)) {
+        errors.push(`${recordPath}.pointer must record the observed command.`);
+      } else if (record.kind === "interview" && (!nonEmpty(record.pointer) || !answerIds.has(record.pointer))) {
+        errors.push(`${recordPath}.pointer must reference an evidence.answers id.`);
       }
     }
     if (fact.status === "observed" && !evidence.some((record) => ["file", "command", "existing-config"].includes(record?.kind))) {
@@ -285,7 +289,7 @@ function validateArchitecture(architecture, root, facts, errors) {
   }
 }
 
-function validateChecks(checks, root, errors) {
+function validateChecks(checks, root, answerIds, errors) {
   if (!Array.isArray(checks)) {
     errors.push("verification must be an array.");
     return new Map();
@@ -320,6 +324,8 @@ function validateChecks(checks, root, errors) {
         }
       } else if (!nonEmpty(check.source.path)) {
         errors.push(`${path}.source.path must identify the confirming interview answer.`);
+      } else if (!answerIds.has(check.source.path)) {
+        errors.push(`${path}.source.path references unknown interview answer: ${check.source.path}`);
       }
     }
   }
@@ -463,8 +469,13 @@ export function validateBlueprint(blueprint, root) {
   validateReservedMarkers(blueprint, "blueprint", errors);
   if (blueprint.schemaVersion !== SCHEMA_VERSION) errors.push(`schemaVersion must equal ${SCHEMA_VERSION}.`);
   validateProject(blueprint.project, errors);
-  const facts = validateEvidence(blueprint.evidence, root, errors, warnings);
-  const checks = validateChecks(blueprint.verification, root, errors);
+  const answerIds = new Set(
+    (Array.isArray(blueprint.evidence?.answers) ? blueprint.evidence.answers : [])
+      .map((answer) => answer?.id)
+      .filter(validId)
+  );
+  const facts = validateEvidence(blueprint.evidence, root, answerIds, errors, warnings);
+  const checks = validateChecks(blueprint.verification, root, answerIds, errors);
   validateArchitecture(blueprint.architecture, root, facts, errors);
   validateRules(blueprint.rules, facts, checks, errors);
   validateSkills(blueprint.skills, root, checks, errors, warnings);

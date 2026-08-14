@@ -98,11 +98,14 @@ Evidence records use:
 
 - `kind`: `file`, `command`, `interview`, or `existing-config`.
 - `path`: repository-relative path when applicable.
-- `pointer`: JSON key, line label, script name, or command detail when useful.
+- `pointer`: JSON key, line label, or script name; required for command and
+  interview evidence.
 - `note`: concise explanation.
 
 An observed fact must point to a real repository path or recorded command. A
-confirmed fact must cite an interview answer or explicit user statement.
+command evidence pointer contains the exact observed command. An interview
+evidence pointer references an entry in `evidence.answers`; confirmed facts
+must cite one of those answers or an existing configuration.
 
 ## Architecture Contract
 
