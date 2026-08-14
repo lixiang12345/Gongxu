@@ -146,6 +146,11 @@ node <skill-dir>/scripts/compile-project.mjs \
   --dry-run
 ```
 
+For an update, keep an exact, unedited snapshot of the canonical blueprint and
+pass it as `--expected-blueprint <snapshot.json>` to both preview and compile
+whenever the temporary candidate differs from `.ai/blueprint.json`. If the
+snapshot is stale, refresh and re-merge instead of bypassing the conflict.
+
 Resolve any ownership conflict. Then compile without `--dry-run`. Never add
 `--force-path <relative-path>` unless the user explicitly approves overwriting
 that exact drifted managed file reported by the compiler. Repeat the option for
@@ -179,7 +184,8 @@ tests; neither proves the other.
 
 ## Update Mode
 
-On later runs, start from `.ai/blueprint.json`, merge new repository evidence
-and confirmed decisions, and compile again. Preserve human-owned decisions and
-memory. Treat drift inside a managed file as a merge decision, not disposable
-noise.
+On later runs, copy `.ai/blueprint.json` into separate immutable baseline and
+editable candidate files, merge new repository evidence and confirmed
+decisions into the candidate, and compile with the baseline passed through
+`--expected-blueprint`. Preserve human-owned decisions and memory. Treat drift
+inside a managed file as a merge decision, not disposable noise.

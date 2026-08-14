@@ -66,12 +66,15 @@ or weakening ownership checks.
 
 ## Safe Upgrade
 
-1. Copy `.ai/blueprint.json` to a temporary working file.
-2. Merge new observed evidence and confirmed decisions.
+1. Copy `.ai/blueprint.json` to an immutable temporary baseline, then copy that
+   baseline to a separate working candidate.
+2. Merge new observed evidence and confirmed decisions into the candidate.
 3. Preserve stable fact and rule IDs where semantics did not change.
-4. Run compiler dry-run and review created, updated, unchanged, and conflicted
-   paths.
-5. Compile without force when no drift exists.
+4. Run compiler dry-run with the immutable baseline passed as
+   `--expected-blueprint`, then review created, updated, unchanged, and
+   conflicted paths.
+5. Compile with the same baseline and without force when no drift exists. If
+   the canonical blueprint changed, refresh the baseline and re-merge.
 6. Validate structure and adapters.
 7. Run project verification separately.
 8. Report any human-owned paths that were intentionally untouched.

@@ -33,7 +33,7 @@ import {
 import { renderArtifacts } from "./lib/render.mjs";
 
 function usage() {
-  return `Usage: compile-project.mjs --root <repo> --blueprint <file> [--dry-run] [--force-path <relative-path>]\n`;
+  return `Usage: compile-project.mjs --root <repo> --blueprint <file> [--expected-blueprint <file>] [--dry-run] [--force-path <relative-path>]\n`;
 }
 
 function parseArgs(argv) {
@@ -48,6 +48,7 @@ function parseArgs(argv) {
     if (arg === "--dry-run") options.dryRun = true;
     else if (arg === "--root") options.root = takeValue(arg, index++);
     else if (arg === "--blueprint") options.blueprint = takeValue(arg, index++);
+    else if (arg === "--expected-blueprint") options.expectedBlueprint = takeValue(arg, index++);
     else if (arg === "--force-path") {
       const path = normalizeRelative(takeValue(arg, index++));
       if (path.startsWith("/") || path.includes("\\") || path.split("/").includes("..")) {
@@ -179,18 +180,23 @@ function rollbackCompile(journal, createdDirectories) {
 }
 
 function applyCompilePlan(root, actions, manifestContent) {
-  const operations = actions
+  const actionOperations = actions
     .filter((action) => action.type !== "unchanged")
     .map((action) => ({
       path: action.path,
       type: action.type === "delete" || (action.type === "remove-region" && action.content === "") ? "delete" : "write",
       content: action.content,
       mode: action.mode,
+      checkCurrent: action.ownership === "source",
+      expectedContent: action.expectedContent,
     }));
+  const sourceOperations = actionOperations.filter((operation) => operation.checkCurrent);
+  const operations = actionOperations.filter((operation) => !operation.checkCurrent);
   const manifestPath = resolveInside(root, ".ai/manifest.json");
   if (readTextIfExists(manifestPath) !== manifestContent) {
     operations.push({ path: ".ai/manifest.json", type: "write", content: manifestContent, mode: 0o644 });
   }
+  operations.push(...sourceOperations);
 
   const journal = [];
   const createdDirectories = new Set();
@@ -198,6 +204,10 @@ function applyCompilePlan(root, actions, manifestContent) {
     for (const operation of operations) {
       const absolute = resolveInside(root, operation.path);
       const snapshot = snapshotFile(absolute);
+      const currentContent = snapshot.exists ? snapshot.content : null;
+      if (operation.checkCurrent && currentContent !== operation.expectedContent) {
+        throw new Error(`Canonical source changed after compile planning: ${operation.path}`);
+      }
       journal.push({ path: absolute, snapshot });
       if (operation.type === "delete") {
         rmSync(absolute, { force: true });
@@ -215,7 +225,7 @@ function applyCompilePlan(root, actions, manifestContent) {
   }
 }
 
-function planActions(root, rendered, manifest, forcePaths) {
+function planActions(root, rendered, manifest, forcePaths, expectedBlueprintContent) {
   const actions = [];
   const conflicts = [];
   const priorEntries = new Map((manifest?.managedFiles || []).map((entry) => [entry.path, entry]));
@@ -226,7 +236,32 @@ function planActions(root, rendered, manifest, forcePaths) {
     const same = existing === artifact.content;
 
     if (artifact.ownership === "source") {
-      actions.push({ type: existing === null ? "create" : same ? "unchanged" : "update", ...artifact });
+      if (existing === null && expectedBlueprintContent !== undefined) {
+        conflicts.push({
+          path: artifact.path,
+          reason: "an expected blueprint snapshot was provided but the canonical blueprint does not exist",
+        });
+        continue;
+      }
+      if (existing !== null && !same && expectedBlueprintContent === undefined) {
+        conflicts.push({
+          path: artifact.path,
+          reason: "canonical blueprint differs from the candidate; provide --expected-blueprint with the exact source snapshot used for this update",
+        });
+        continue;
+      }
+      if (existing !== null && !same && existing !== expectedBlueprintContent) {
+        conflicts.push({
+          path: artifact.path,
+          reason: "canonical blueprint changed since the expected source snapshot",
+        });
+        continue;
+      }
+      actions.push({
+        type: existing === null ? "create" : same ? "unchanged" : "update",
+        ...artifact,
+        expectedContent: existing,
+      });
       continue;
     }
 
@@ -355,6 +390,15 @@ function main() {
     process.stderr.write(`${error.message}\n`);
     process.exit(1);
   }
+  let expectedBlueprintContent;
+  if (options.expectedBlueprint) {
+    try {
+      expectedBlueprintContent = readFileSync(resolve(options.expectedBlueprint), "utf8");
+    } catch (error) {
+      process.stderr.write(`Cannot read expected blueprint snapshot at ${resolve(options.expectedBlueprint)}: ${error.message}\n`);
+      process.exit(1);
+    }
+  }
   const validation = validateBlueprint(blueprint, root);
   if (validation.errors.length > 0) {
     process.stderr.write(`${JSON.stringify({ ok: false, errors: validation.errors, warnings: validation.warnings }, null, 2)}\n`);
@@ -388,7 +432,7 @@ function main() {
   }
   let plan;
   try {
-    plan = planActions(root, rendered, manifest, options.forcePaths);
+    plan = planActions(root, rendered, manifest, options.forcePaths, expectedBlueprintContent);
   } catch (error) {
     process.stderr.write(`Cannot plan compile: ${error.message}\n`);
     process.exit(1);

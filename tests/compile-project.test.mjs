@@ -127,6 +127,41 @@ test("recompilation is idempotent and preserves user-owned instruction content",
   assert.match(readFixtureFile(fixture, "CLAUDE.md"), /@AGENTS\.md/);
 });
 
+test("external blueprint updates require an exact canonical source snapshot", (t) => {
+  const { fixture, blueprintPath } = initialize(t);
+  const updated = loadBlueprint();
+  updated.project.summary = "An intentionally updated project summary.";
+  const updatedPath = writeBlueprint(fixture, updated, "candidate-blueprint.json");
+
+  const missingBaseline = compileFixture(fixture, updatedPath);
+  assert.equal(missingBaseline.status, 1);
+  assert.ok(parseJsonOutput(missingBaseline).conflicts.some((item) =>
+    item.path === ".ai/blueprint.json" && item.reason.includes("provide --expected-blueprint")
+  ));
+  assert.equal(JSON.parse(readFixtureFile(fixture, ".ai/blueprint.json")).project.summary, loadBlueprint().project.summary);
+
+  const accepted = compileFixture(fixture, updatedPath, ["--expected-blueprint", blueprintPath]);
+  assert.equal(accepted.status, 0, accepted.stderr || accepted.stdout);
+  assert.equal(JSON.parse(readFixtureFile(fixture, ".ai/blueprint.json")).project.summary, updated.project.summary);
+
+  const next = structuredClone(updated);
+  next.project.summary = "A second candidate based on the accepted update.";
+  const nextPath = writeBlueprint(fixture, next, "next-candidate.json");
+  const concurrent = JSON.parse(readFixtureFile(fixture, ".ai/blueprint.json"));
+  concurrent.evidence.assumptions.push("A concurrent human source edit.");
+  writeFixtureFile(fixture, ".ai/blueprint.json", `${JSON.stringify(concurrent, null, 2)}\n`);
+
+  const staleBaseline = compileFixture(fixture, nextPath, ["--expected-blueprint", updatedPath]);
+  assert.equal(staleBaseline.status, 1);
+  assert.ok(parseJsonOutput(staleBaseline).conflicts.some((item) =>
+    item.path === ".ai/blueprint.json" && item.reason.includes("changed since the expected source snapshot")
+  ));
+  assert.deepEqual(JSON.parse(readFixtureFile(fixture, ".ai/blueprint.json")), concurrent);
+
+  const compileCurrent = compileFixture(fixture, join(fixture.root, ".ai/blueprint.json"));
+  assert.equal(compileCurrent.status, 0, compileCurrent.stderr || compileCurrent.stdout);
+});
+
 test("recompilation ignores generated dirty state but reports project changes", (t) => {
   const fixture = createFixture("node-monorepo");
   t.after(() => cleanupFixture(fixture));
@@ -184,7 +219,7 @@ test("compiler rolls back earlier writes when a later managed write fails", (t) 
     t.skip("permission failure injection requires a non-root POSIX process");
     return;
   }
-  const { fixture } = initialize(t);
+  const { fixture, blueprintPath } = initialize(t);
   const agentsPath = join(fixture.root, "AGENTS.md");
   chmodSync(agentsPath, 0o764);
   const preservedPaths = [
@@ -207,7 +242,7 @@ test("compiler rolls back earlier writes when a later managed write fails", (t) 
   chmodSync(blockedDirectory, 0o555);
   let result;
   try {
-    result = compileFixture(fixture, updatedPath);
+    result = compileFixture(fixture, updatedPath, ["--expected-blueprint", blueprintPath]);
   } finally {
     chmodSync(blockedDirectory, originalMode);
   }
@@ -230,7 +265,7 @@ test("compiler rolls back earlier writes when a later managed write fails", (t) 
 });
 
 test("compiler removes obsolete generated artifacts while retaining Claude user content", (t) => {
-  const { fixture } = initialize(t);
+  const { fixture, blueprintPath } = initialize(t);
   const canonicalSkill = ".ai/skills/change-workspace-feature/SKILL.md";
   appendFileSync(join(fixture.root, canonicalSkill), "\nUser-managed drift.\n");
   const updated = loadBlueprint();
@@ -239,12 +274,15 @@ test("compiler removes obsolete generated artifacts while retaining Claude user 
   updated.adapters = ["codex"];
   const updatedPath = writeBlueprint(fixture, updated, "updated-blueprint.json");
 
-  const rejected = compileFixture(fixture, updatedPath);
+  const rejected = compileFixture(fixture, updatedPath, ["--expected-blueprint", blueprintPath]);
   assert.equal(rejected.status, 1);
   assert.ok(parseJsonOutput(rejected).conflicts.some((item) => item.path === canonicalSkill));
   assert.ok(existsSync(join(fixture.root, canonicalSkill)));
 
-  const result = compileFixture(fixture, updatedPath, ["--force-path", canonicalSkill]);
+  const result = compileFixture(fixture, updatedPath, [
+    "--expected-blueprint", blueprintPath,
+    "--force-path", canonicalSkill,
+  ]);
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const summary = parseJsonOutput(result);
   assert.ok(summary.actions.some((action) => action.type === "delete" && action.path === ".ai/skills/change-workspace-feature/SKILL.md"));
@@ -449,6 +487,10 @@ test("force-path rejects missing values and non-managed paths", (t) => {
   const missing = compileFixture(fixture, blueprintPath, ["--force-path"]);
   assert.equal(missing.status, 2);
   assert.match(missing.stderr, /requires a value/);
+
+  const missingExpected = compileFixture(fixture, blueprintPath, ["--expected-blueprint"]);
+  assert.equal(missingExpected.status, 2);
+  assert.match(missingExpected.stderr, /--expected-blueprint requires a value/);
 
   const broad = compileFixture(fixture, blueprintPath, ["--force-path", ".ai"]);
   assert.equal(broad.status, 2);

@@ -215,6 +215,10 @@ claims, even when a manifest entry contains their current hash.
 The compiler must stop on drift in a managed file or region.
 `--force-path <relative-path>` is an exact-path override, never an automatic or
 directory-wide repair strategy.
+Because `.ai/blueprint.json` is human-owned, an external candidate may replace
+it only when `--expected-blueprint` contains the exact canonical bytes used as
+that candidate's baseline. A stale or missing baseline is a source conflict,
+not managed drift, and `--force-path` must not bypass it.
 An existing full-file target without a matching manifest ownership record is a
 collision even when its bytes equal the current renderer output. Byte equality
 does not prove ownership; adopting that exact path requires `--force-path`.
