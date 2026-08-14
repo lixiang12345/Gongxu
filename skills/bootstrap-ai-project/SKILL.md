@@ -118,6 +118,10 @@ Create a temporary `blueprint.json` matching
 handwritten alternative schema. Include provenance for every observed or
 confirmed fact and every generated blocking rule.
 
+Set `evidence.sourceRevision` to the inspector's exact `git.head`. Use `null`
+only when the inspector could not resolve a Git revision; do not substitute a
+branch name, abbreviated hash, or guessed revision.
+
 Use a temporary directory from the operating system. Do not leave interview
 scratch files in the target repository.
 

@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { existsSync, realpathSync, statSync } from "node:fs";
 import { resolve, sep } from "node:path";
 
@@ -73,6 +74,18 @@ function pathExists(root, relativePath, type = null) {
   if (type === "directory") return statSync(canonical).isDirectory();
   if (type === "file") return statSync(canonical).isFile();
   return true;
+}
+
+function currentGitRevision(root) {
+  try {
+    return execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim() || null;
+  } catch {
+    return null;
+  }
 }
 
 function checkUniqueIds(items, path, errors) {
@@ -215,8 +228,15 @@ function validateEvidence(ledger, root, answerIds, errors, warnings) {
     }
   }
   checkStringArray(ledger.assumptions, "evidence.assumptions", errors);
-  if (!(ledger.sourceRevision === null || typeof ledger.sourceRevision === "string")) {
-    errors.push("evidence.sourceRevision must be a string or null.");
+  if (!(ledger.sourceRevision === null || nonEmpty(ledger.sourceRevision))) {
+    errors.push("evidence.sourceRevision must be a non-empty string or null.");
+  } else {
+    const currentRevision = currentGitRevision(root);
+    if (currentRevision && ledger.sourceRevision === null) {
+      warnings.push(`evidence.sourceRevision is missing; current Git HEAD is ${currentRevision}.`);
+    } else if (currentRevision && ledger.sourceRevision !== currentRevision) {
+      warnings.push(`evidence.sourceRevision ${ledger.sourceRevision} differs from current Git HEAD ${currentRevision}; refresh repository evidence before adding new rules.`);
+    }
   }
   return facts;
 }

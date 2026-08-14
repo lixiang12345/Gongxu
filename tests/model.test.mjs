@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { appendFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
@@ -15,6 +16,14 @@ function validateMutation(fixture, mutate) {
   const blueprint = structuredClone(loadBlueprint());
   mutate(blueprint);
   return validateBlueprint(blueprint, fixture.root);
+}
+
+function git(root, args) {
+  return execFileSync("git", args, {
+    cwd: root,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"],
+  }).trim();
 }
 
 test("valid fixture blueprint passes semantic validation", (t) => {
@@ -35,6 +44,14 @@ test("target architecture schema permits status without weakening additionalProp
   assert.equal("allOf" in target, false);
 });
 
+test("blueprint schema rejects empty source revisions", () => {
+  const schema = JSON.parse(readFileSync(join(repositoryRoot, "skills/bootstrap-ai-project/assets/blueprint.schema.json"), "utf8"));
+  const sourceRevision = schema.$defs.evidenceLedger.properties.sourceRevision;
+
+  assert.deepEqual(sourceRevision.type, ["string", "null"]);
+  assert.equal(sourceRevision.minLength, 1);
+});
+
 test("validator enforces evidence status provenance", (t) => {
   const fixture = createFixture("node-monorepo");
   t.after(() => cleanupFixture(fixture));
@@ -49,6 +66,48 @@ test("validator enforces evidence status provenance", (t) => {
     fact.evidence = [{ kind: "file", path: "README.md", note: "A file is not an explicit confirmation." }];
   });
   assert.ok(confirmed.errors.some((error) => error.includes("confirmed fact requires")));
+});
+
+test("validator reports missing and stale Git source revisions", (t) => {
+  const fixture = createFixture("node-monorepo");
+  t.after(() => cleanupFixture(fixture));
+  git(fixture.root, ["init", "--quiet"]);
+  git(fixture.root, ["add", "."]);
+  git(fixture.root, [
+    "-c", "user.name=Gongxu Tests",
+    "-c", "user.email=gongxu-tests@example.invalid",
+    "commit", "--quiet", "-m", "initial fixture",
+  ]);
+  const inspectedRevision = git(fixture.root, ["rev-parse", "HEAD"]);
+  const blueprint = loadBlueprint();
+  blueprint.evidence.sourceRevision = inspectedRevision;
+
+  const current = validateBlueprint(blueprint, fixture.root);
+  assert.equal(current.warnings.some((warning) => warning.includes("sourceRevision")), false);
+
+  appendFileSync(join(fixture.root, "README.md"), "\nA later repository change.\n");
+  git(fixture.root, ["add", "README.md"]);
+  git(fixture.root, [
+    "-c", "user.name=Gongxu Tests",
+    "-c", "user.email=gongxu-tests@example.invalid",
+    "commit", "--quiet", "-m", "later change",
+  ]);
+  const currentRevision = git(fixture.root, ["rev-parse", "HEAD"]);
+
+  const stale = validateBlueprint(blueprint, fixture.root);
+  assert.ok(stale.warnings.includes(
+    `evidence.sourceRevision ${inspectedRevision} differs from current Git HEAD ${currentRevision}; refresh repository evidence before adding new rules.`
+  ));
+
+  blueprint.evidence.sourceRevision = null;
+  const missing = validateBlueprint(blueprint, fixture.root);
+  assert.ok(missing.warnings.includes(
+    `evidence.sourceRevision is missing; current Git HEAD is ${currentRevision}.`
+  ));
+
+  blueprint.evidence.sourceRevision = "";
+  const empty = validateBlueprint(blueprint, fixture.root);
+  assert.ok(empty.errors.includes("evidence.sourceRevision must be a non-empty string or null."));
 });
 
 test("validator links command and interview evidence to concrete provenance", (t) => {

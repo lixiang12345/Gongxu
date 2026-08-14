@@ -83,6 +83,11 @@ Top-level fields:
 Use stable lowercase hyphen IDs. Preserve IDs across updates when semantics stay
 the same.
 
+`evidence.sourceRevision` records the exact Git HEAD inspected to build the
+ledger, or `null` when no revision is available. A later HEAD mismatch is an
+evidence-freshness warning rather than a hard error because the blueprint's own
+commit necessarily advances the repository.
+
 ## Fact Contract
 
 Each fact contains:

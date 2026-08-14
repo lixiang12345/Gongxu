@@ -139,7 +139,7 @@
       "additionalProperties": false,
       "required": ["sourceRevision", "facts", "unknowns", "answers", "assumptions"],
       "properties": {
-        "sourceRevision": { "type": ["string", "null"] },
+        "sourceRevision": { "type": ["string", "null"], "minLength": 1 },
         "facts": { "type": "array", "items": { "$ref": "#/$defs/fact" } },
         "unknowns": { "type": "array", "items": { "$ref": "#/$defs/unknown" } },
         "answers": { "type": "array", "items": { "$ref": "#/$defs/answer" } },
