@@ -1,0 +1,300 @@
+{
+  "schemaVersion": 1,
+  "project": {
+    "id": "fixture-workspace",
+    "name": "Fixture Workspace",
+    "summary": "A brownfield web application and API maintained in one npm workspace.",
+    "stage": "active",
+    "kind": "web-application",
+    "primaryUsers": [
+      "internal operators"
+    ],
+    "domains": [
+      "workspace"
+    ],
+    "constraints": [
+      "Preserve the existing npm workspace boundaries."
+    ]
+  },
+  "evidence": {
+    "sourceRevision": null,
+    "facts": [
+      {
+        "id": "repository-workspaces",
+        "subject": "Repository workspaces",
+        "value": [
+          "apps/web",
+          "services/api"
+        ],
+        "status": "observed",
+        "confidence": 1,
+        "evidence": [
+          {
+            "kind": "file",
+            "path": "package.json",
+            "pointer": "workspaces",
+            "note": "The root manifest declares apps and services workspaces."
+          }
+        ]
+      },
+      {
+        "id": "architecture-modules",
+        "subject": "Current architecture modules",
+        "value": [
+          "web",
+          "api"
+        ],
+        "status": "observed",
+        "confidence": 1,
+        "evidence": [
+          {
+            "kind": "file",
+            "path": "docs/architecture.md",
+            "pointer": "Architecture",
+            "note": "The architecture document identifies independently deployed web and API modules."
+          }
+        ]
+      },
+      {
+        "id": "project-test-command",
+        "subject": "Project test command",
+        "value": "npm test",
+        "status": "observed",
+        "confidence": 1,
+        "evidence": [
+          {
+            "kind": "file",
+            "path": "package.json",
+            "pointer": "scripts.test",
+            "note": "The root manifest defines the project test command."
+          }
+        ]
+      },
+      {
+        "id": "web-page-example",
+        "subject": "Representative web page",
+        "value": "apps/web/src/app/page.tsx",
+        "status": "observed",
+        "confidence": 1,
+        "evidence": [
+          {
+            "kind": "file",
+            "path": "apps/web/src/app/page.tsx",
+            "pointer": "HomePage",
+            "note": "The existing page is the smallest maintained frontend example."
+          }
+        ]
+      },
+      {
+        "id": "product-purpose",
+        "subject": "Product purpose",
+        "value": "Internal workspace operations",
+        "status": "confirmed",
+        "confidence": 1,
+        "evidence": [
+          {
+            "kind": "interview",
+            "pointer": "answer-product-purpose",
+            "note": "The project owner confirmed the product purpose."
+          }
+        ]
+      }
+    ],
+    "unknowns": [],
+    "answers": [
+      {
+        "id": "answer-product-purpose",
+        "question": "Who is the product for?",
+        "answer": "Internal operators."
+      }
+    ],
+    "assumptions": []
+  },
+  "architecture": {
+    "current": {
+      "summary": "An independently deployed web workspace consumes a public API workspace.",
+      "style": "workspace-monorepo",
+      "modules": [
+        {
+          "id": "api",
+          "name": "API Service",
+          "responsibilities": [
+            "Expose the public HTTP API."
+          ],
+          "dependencies": [],
+          "paths": [
+            "services/api"
+          ],
+          "planned": false
+        },
+        {
+          "id": "web",
+          "name": "Web Application",
+          "responsibilities": [
+            "Provide the operator user interface."
+          ],
+          "dependencies": [
+            "api"
+          ],
+          "paths": [
+            "apps/web"
+          ],
+          "planned": false
+        }
+      ]
+    },
+    "target": {
+      "summary": "Preserve the observed workspace architecture.",
+      "style": "workspace-monorepo",
+      "modules": [
+        {
+          "id": "api",
+          "name": "API Service",
+          "responsibilities": [
+            "Expose the public HTTP API."
+          ],
+          "dependencies": [],
+          "paths": [
+            "services/api"
+          ],
+          "planned": false
+        },
+        {
+          "id": "web",
+          "name": "Web Application",
+          "responsibilities": [
+            "Provide the operator user interface."
+          ],
+          "dependencies": [
+            "api"
+          ],
+          "paths": [
+            "apps/web"
+          ],
+          "planned": false
+        }
+      ],
+      "status": "preserve-current"
+    },
+    "boundaries": [
+      {
+        "id": "web-uses-public-api",
+        "from": "web",
+        "to": "api",
+        "policy": "allow",
+        "rationale": "The documented architecture connects the independently deployed workspaces through the public API.",
+        "sourceFactIds": [
+          "architecture-modules"
+        ]
+      }
+    ]
+  },
+  "rules": [
+    {
+      "id": "preserve-workspace-scope",
+      "scope": "architecture",
+      "statement": "Keep web changes under apps/web and API changes under services/api unless an architecture change is explicitly approved.",
+      "rationale": "The repository already deploys these workspaces independently.",
+      "severity": "warn",
+      "sourceFactIds": [
+        "repository-workspaces",
+        "architecture-modules"
+      ]
+    },
+    {
+      "id": "verify-project-tests",
+      "scope": "verification",
+      "statement": "Run the root project test command before reporting a cross-workspace change complete.",
+      "rationale": "The root test command executes both workspace test suites.",
+      "severity": "block",
+      "sourceFactIds": [
+        "project-test-command"
+      ],
+      "checkId": "project-test"
+    }
+  ],
+  "skills": [
+    {
+      "id": "change-workspace-feature",
+      "name": "Change Workspace Feature",
+      "description": "Implement or update a feature that touches the fixture web application, API service, or their public interaction.",
+      "triggers": [
+        "adding a web feature",
+        "changing an API used by the web application"
+      ],
+      "context": [
+        ".ai/project/repo-map.md",
+        "docs/architecture.md",
+        "apps/web/src/app/page.tsx"
+      ],
+      "steps": [
+        "Inspect the affected workspace and the public interaction between web and API.",
+        "Keep the implementation within the observed workspace boundary.",
+        "Update tests in every affected workspace.",
+        "Run the root project test check."
+      ],
+      "verificationCheckIds": [
+        "project-test"
+      ]
+    }
+  ],
+  "workflows": [
+    {
+      "id": "repository-change",
+      "name": "Repository Change",
+      "triggers": [
+        "implementing a feature",
+        "fixing a defect"
+      ],
+      "steps": [
+        {
+          "id": "inspect",
+          "action": "Inspect the existing implementation and relevant project evidence.",
+          "required": true
+        },
+        {
+          "id": "implement",
+          "action": "Implement the smallest scoped change that follows the selected rules.",
+          "required": true
+        },
+        {
+          "id": "verify",
+          "action": "Run the project test command.",
+          "required": true,
+          "checkId": "project-test"
+        }
+      ]
+    }
+  ],
+  "examples": [
+    {
+      "id": "existing-home-page",
+      "path": "apps/web/src/app/page.tsx",
+      "demonstrates": [
+        "the current Next.js page location"
+      ],
+      "sourceFactIds": [
+        "web-page-example"
+      ]
+    }
+  ],
+  "verification": [
+    {
+      "id": "project-test",
+      "name": "Project tests",
+      "command": "npm test",
+      "cwd": ".",
+      "required": true,
+      "source": {
+        "kind": "file",
+        "path": "package.json",
+        "pointer": "scripts.test",
+        "note": "The root package script runs both workspace test suites."
+      }
+    }
+  ],
+  "adapters": [
+    "codex",
+    "claude"
+  ]
+}

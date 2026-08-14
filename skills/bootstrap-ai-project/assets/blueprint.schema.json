@@ -1,0 +1,283 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gongxu.dev/schemas/blueprint-v1.json",
+  "title": "Gongxu Project Blueprint",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "project",
+    "evidence",
+    "architecture",
+    "rules",
+    "skills",
+    "workflows",
+    "examples",
+    "verification",
+    "adapters"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "project": { "$ref": "#/$defs/project" },
+    "evidence": { "$ref": "#/$defs/evidenceLedger" },
+    "architecture": { "$ref": "#/$defs/architecture" },
+    "rules": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/rule" }
+    },
+    "skills": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/skill" }
+    },
+    "workflows": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/workflow" }
+    },
+    "examples": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/example" }
+    },
+    "verification": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/check" }
+    },
+    "adapters": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "enum": ["codex", "claude"] }
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "nonEmpty": { "type": "string", "minLength": 1 },
+    "stringList": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/nonEmpty" },
+      "uniqueItems": true
+    },
+    "project": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "summary", "stage", "kind", "primaryUsers", "domains", "constraints"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "name": { "$ref": "#/$defs/nonEmpty" },
+        "summary": { "$ref": "#/$defs/nonEmpty" },
+        "stage": { "enum": ["greenfield", "prototype", "active", "mature", "legacy"] },
+        "kind": { "$ref": "#/$defs/nonEmpty" },
+        "primaryUsers": { "$ref": "#/$defs/stringList" },
+        "domains": { "$ref": "#/$defs/stringList" },
+        "constraints": { "$ref": "#/$defs/stringList" }
+      }
+    },
+    "evidenceRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "note"],
+      "properties": {
+        "kind": { "enum": ["file", "command", "interview", "existing-config"] },
+        "path": { "type": "string" },
+        "pointer": { "type": "string" },
+        "note": { "$ref": "#/$defs/nonEmpty" }
+      }
+    },
+    "fact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "subject", "value", "status", "confidence", "evidence"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "subject": { "$ref": "#/$defs/nonEmpty" },
+        "value": true,
+        "status": { "enum": ["observed", "confirmed", "inferred", "unknown"] },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "evidence": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/evidenceRecord" }
+        }
+      }
+    },
+    "unknown": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "question", "impact", "blocking"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "question": { "$ref": "#/$defs/nonEmpty" },
+        "impact": { "$ref": "#/$defs/nonEmpty" },
+        "blocking": { "type": "boolean" }
+      }
+    },
+    "answer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "question", "answer"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "question": { "$ref": "#/$defs/nonEmpty" },
+        "answer": { "$ref": "#/$defs/nonEmpty" }
+      }
+    },
+    "evidenceLedger": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceRevision", "facts", "unknowns", "answers", "assumptions"],
+      "properties": {
+        "sourceRevision": { "type": ["string", "null"] },
+        "facts": { "type": "array", "items": { "$ref": "#/$defs/fact" } },
+        "unknowns": { "type": "array", "items": { "$ref": "#/$defs/unknown" } },
+        "answers": { "type": "array", "items": { "$ref": "#/$defs/answer" } },
+        "assumptions": { "$ref": "#/$defs/stringList" }
+      }
+    },
+    "module": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "responsibilities", "dependencies", "paths", "planned"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "name": { "$ref": "#/$defs/nonEmpty" },
+        "responsibilities": { "$ref": "#/$defs/stringList" },
+        "dependencies": { "type": "array", "items": { "$ref": "#/$defs/id" }, "uniqueItems": true },
+        "paths": { "$ref": "#/$defs/stringList" },
+        "planned": { "type": "boolean" }
+      }
+    },
+    "architectureState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["summary", "style", "modules"],
+      "properties": {
+        "summary": { "$ref": "#/$defs/nonEmpty" },
+        "style": { "$ref": "#/$defs/nonEmpty" },
+        "modules": { "type": "array", "items": { "$ref": "#/$defs/module" } }
+      }
+    },
+    "targetArchitecture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["summary", "style", "modules", "status"],
+      "properties": {
+        "summary": { "$ref": "#/$defs/nonEmpty" },
+        "style": { "$ref": "#/$defs/nonEmpty" },
+        "modules": { "type": "array", "items": { "$ref": "#/$defs/module" } },
+        "status": { "enum": ["preserve-current", "confirmed", "proposed"] }
+      }
+    },
+    "boundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "from", "to", "policy", "rationale", "sourceFactIds"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "from": { "$ref": "#/$defs/nonEmpty" },
+        "to": { "$ref": "#/$defs/nonEmpty" },
+        "policy": { "enum": ["allow", "deny", "approval"] },
+        "rationale": { "$ref": "#/$defs/nonEmpty" },
+        "sourceFactIds": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/id" }, "uniqueItems": true }
+      }
+    },
+    "architecture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["current", "target", "boundaries"],
+      "properties": {
+        "current": { "$ref": "#/$defs/architectureState" },
+        "target": { "$ref": "#/$defs/targetArchitecture" },
+        "boundaries": { "type": "array", "items": { "$ref": "#/$defs/boundary" } }
+      }
+    },
+    "rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "scope", "statement", "rationale", "severity", "sourceFactIds"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "scope": { "enum": ["project", "architecture", "workflow", "verification", "security", "ui"] },
+        "statement": { "$ref": "#/$defs/nonEmpty" },
+        "rationale": { "$ref": "#/$defs/nonEmpty" },
+        "severity": { "enum": ["guide", "warn", "block"] },
+        "sourceFactIds": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/id" }, "uniqueItems": true },
+        "checkId": { "$ref": "#/$defs/id" },
+        "approvalRequired": { "type": "boolean" }
+      }
+    },
+    "skill": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "description", "triggers", "context", "steps", "verificationCheckIds"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "name": { "$ref": "#/$defs/nonEmpty" },
+        "description": { "$ref": "#/$defs/nonEmpty" },
+        "triggers": { "$ref": "#/$defs/stringList" },
+        "context": { "$ref": "#/$defs/stringList" },
+        "steps": { "$ref": "#/$defs/stringList" },
+        "verificationCheckIds": { "type": "array", "items": { "$ref": "#/$defs/id" }, "uniqueItems": true }
+      }
+    },
+    "workflowStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "action", "required"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "action": { "$ref": "#/$defs/nonEmpty" },
+        "required": { "type": "boolean" },
+        "checkId": { "$ref": "#/$defs/id" }
+      }
+    },
+    "workflow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "triggers", "steps"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "name": { "$ref": "#/$defs/nonEmpty" },
+        "triggers": { "$ref": "#/$defs/stringList" },
+        "steps": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/workflowStep" } }
+      }
+    },
+    "example": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "path", "demonstrates", "sourceFactIds"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "path": { "$ref": "#/$defs/nonEmpty" },
+        "demonstrates": { "$ref": "#/$defs/stringList" },
+        "sourceFactIds": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/id" }, "uniqueItems": true }
+      }
+    },
+    "checkSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "path", "note"],
+      "properties": {
+        "kind": { "enum": ["file", "interview", "existing-config"] },
+        "path": { "type": "string" },
+        "pointer": { "type": "string" },
+        "note": { "$ref": "#/$defs/nonEmpty" }
+      }
+    },
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "command", "cwd", "required", "source"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "name": { "$ref": "#/$defs/nonEmpty" },
+        "command": { "$ref": "#/$defs/nonEmpty" },
+        "cwd": { "type": "string" },
+        "required": { "type": "boolean" },
+        "source": { "$ref": "#/$defs/checkSource" }
+      }
+    }
+  }
+}

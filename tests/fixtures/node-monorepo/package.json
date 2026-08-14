@@ -1,0 +1,13 @@
+{
+  "name": "fixture-workspace",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "services/*"
+  ],
+  "scripts": {
+    "test": "node --test apps/web/specs/*.fixture.mjs services/api/specs/*.fixture.mjs",
+    "lint": "node -e \"process.exit(0)\"",
+    "typecheck": "node -e \"process.exit(0)\""
+  }
+}

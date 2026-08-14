@@ -1,0 +1,12 @@
+{
+  "name": "@fixture/api",
+  "private": true,
+  "scripts": {
+    "test": "node --test specs/*.fixture.mjs",
+    "lint": "node -e \"process.exit(0)\"",
+    "typecheck": "node -e \"process.exit(0)\""
+  },
+  "dependencies": {
+    "express": "5.0.0"
+  }
+}

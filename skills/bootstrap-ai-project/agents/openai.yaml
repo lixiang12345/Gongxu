@@ -1,0 +1,4 @@
+interface:
+  display_name: "Bootstrap AI Project"
+  short_description: "Analyze a repository and compile its .ai system"
+  default_prompt: "Use $bootstrap-ai-project to analyze this repository, ask only necessary questions, and initialize or update its .ai engineering system."

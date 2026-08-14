@@ -1,0 +1,14 @@
+{
+  "name": "@fixture/web",
+  "private": true,
+  "scripts": {
+    "test": "node --test specs/*.fixture.mjs",
+    "lint": "node -e \"process.exit(0)\"",
+    "typecheck": "node -e \"process.exit(0)\"",
+    "build": "node -e \"process.exit(0)\""
+  },
+  "dependencies": {
+    "next": "15.0.0",
+    "react": "19.0.0"
+  }
+}
