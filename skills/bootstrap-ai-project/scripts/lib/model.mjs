@@ -9,6 +9,11 @@ export const ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 export const FACT_STATUSES = new Set(["observed", "confirmed", "inferred", "unknown"]);
 export const RULE_SCOPES = new Set(["project", "architecture", "workflow", "verification", "security", "ui"]);
 export const RULE_SEVERITIES = new Set(["guide", "warn", "block"]);
+export const HUMAN_OWNED_PATHS = Object.freeze([
+  ".ai/blueprint.json",
+  ".ai/architecture/decisions/",
+  ".ai/memory/",
+]);
 const RESERVED_MARKERS = ["<!-- gongxu:begin -->", "<!-- gongxu:end -->"];
 
 function isObject(value) {

@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  rmSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -170,6 +171,42 @@ test("region drift is reported, optionally tolerated for migration, and never ov
   const forced = compileFixture(fixture, blueprintPath, ["--force-path", "AGENTS.md"]);
   assert.equal(forced.status, 0, forced.stderr || forced.stdout);
   assert.equal(readFixtureFile(fixture, "AGENTS.md"), original);
+});
+
+test("validator reports managed symlinks without an uncaught stack", (t) => {
+  const { fixture } = initialize(t);
+  const profilePath = join(fixture.root, ".ai/project/profile.md");
+  const outsidePath = join(fixture.temporary, "outside-profile.md");
+  writeFileSync(outsidePath, "outside content\n");
+  rmSync(profilePath);
+  symlinkSync(outsidePath, profilePath);
+
+  const result = runNode(validateScript, [fixture.root]);
+  assert.equal(result.status, 1);
+  assert.doesNotMatch(result.stderr, /\n\s+at /);
+  const report = parseJsonOutput(result);
+  assert.equal(report.ok, false);
+  assert.ok(report.errors.some((error) => error.includes("symbolic link")));
+  assert.equal(readFileSync(outsidePath, "utf8"), "outside content\n");
+});
+
+test("validator enforces the complete manifest contract", (t) => {
+  const { fixture } = initialize(t);
+  const manifestPath = join(fixture.root, ".ai/manifest.json");
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  manifest.sourceRevision = "unexpected-revision";
+  manifest.humanOwnedPaths = [".ai/blueprint.json"];
+  manifest.unexpected = true;
+  manifest.managedFiles[0].unexpected = true;
+  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+
+  const result = runNode(validateScript, [fixture.root]);
+  assert.equal(result.status, 1);
+  const report = parseJsonOutput(result);
+  assert.ok(report.errors.includes("Manifest sourceRevision does not match the blueprint."));
+  assert.ok(report.errors.includes("Manifest humanOwnedPaths do not match the Gongxu ownership contract."));
+  assert.ok(report.errors.includes("manifest.unexpected is not supported."));
+  assert.ok(report.errors.some((error) => error.includes("managedFiles[0].unexpected is not supported")));
 });
 
 test("compiler refuses unowned AI content, wrapper collisions, and symlink traversal", async (t) => {

@@ -9,8 +9,72 @@ import {
   readTextIfExists,
   resolveInside,
 } from "./lib/files.mjs";
-import { GENERATOR_NAME, SCHEMA_VERSION, validateBlueprint } from "./lib/model.mjs";
+import {
+  GENERATOR_NAME,
+  HUMAN_OWNED_PATHS,
+  SCHEMA_VERSION,
+  validateBlueprint,
+} from "./lib/model.mjs";
 import { renderArtifacts } from "./lib/render.mjs";
+
+const MANIFEST_KEYS = [
+  "schemaVersion",
+  "generator",
+  "generatedAt",
+  "projectId",
+  "sourceRevision",
+  "adapters",
+  "managedFiles",
+  "humanOwnedPaths",
+];
+
+function isObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function checkObjectShape(value, path, required, allowed, errors) {
+  if (!isObject(value)) {
+    errors.push(`${path} must be an object.`);
+    return false;
+  }
+  for (const key of required) {
+    if (!(key in value)) errors.push(`${path}.${key} is required.`);
+  }
+  for (const key of Object.keys(value)) {
+    if (!allowed.includes(key)) errors.push(`${path}.${key} is not supported.`);
+  }
+  return true;
+}
+
+function validateManifestContract(manifest, blueprint, errors) {
+  if (!checkObjectShape(manifest, "manifest", MANIFEST_KEYS, MANIFEST_KEYS, errors)) return;
+  if (!checkObjectShape(manifest.generator, "manifest.generator", ["name", "version"], ["name", "version"], errors)) {
+    return;
+  }
+  if (manifest.schemaVersion !== SCHEMA_VERSION) errors.push(`Manifest schemaVersion must equal ${SCHEMA_VERSION}.`);
+  if (manifest.generator.name !== GENERATOR_NAME) errors.push("Manifest generator is not Gongxu.");
+  if (typeof manifest.generator.version !== "string" || manifest.generator.version.length === 0) {
+    errors.push("Manifest generator version is missing.");
+  }
+  if (typeof manifest.generatedAt !== "string" || Number.isNaN(Date.parse(manifest.generatedAt))) {
+    errors.push("Manifest generatedAt must be an ISO timestamp.");
+  } else if (new Date(manifest.generatedAt).toISOString() !== manifest.generatedAt) {
+    errors.push("Manifest generatedAt must use canonical ISO format.");
+  }
+  if (manifest.projectId !== blueprint.project?.id) errors.push("Manifest projectId does not match the blueprint.");
+  if (manifest.sourceRevision !== blueprint.evidence?.sourceRevision) {
+    errors.push("Manifest sourceRevision does not match the blueprint.");
+  }
+  if (!Array.isArray(manifest.adapters)) errors.push("Manifest adapters must be an array.");
+  else if (JSON.stringify(manifest.adapters) !== JSON.stringify(blueprint.adapters)) {
+    errors.push("Manifest adapters do not match the blueprint.");
+  }
+  if (!Array.isArray(manifest.managedFiles)) errors.push("Manifest managedFiles must be an array.");
+  if (!Array.isArray(manifest.humanOwnedPaths)) errors.push("Manifest humanOwnedPaths must be an array.");
+  else if (JSON.stringify(manifest.humanOwnedPaths) !== JSON.stringify(HUMAN_OWNED_PATHS)) {
+    errors.push("Manifest humanOwnedPaths do not match the Gongxu ownership contract.");
+  }
+}
 
 function loadJson(path, label, errors) {
   try {
@@ -33,6 +97,10 @@ function parseArgs(argv) {
 }
 
 function validateSkillFrontmatter(path, content, errors) {
+  if (typeof content !== "string") {
+    errors.push(`${path} cannot be read as text.`);
+    return;
+  }
   const match = content.match(/^---\n([\s\S]*?)\n---\n/);
   if (!match) {
     errors.push(`${path} has no YAML frontmatter.`);
@@ -63,8 +131,16 @@ function main() {
   const warnings = [];
   const drift = [];
 
-  const blueprintPath = resolveInside(root, ".ai/blueprint.json");
-  const manifestPath = resolveInside(root, ".ai/manifest.json");
+  let blueprintPath;
+  let manifestPath;
+  try {
+    blueprintPath = resolveInside(root, ".ai/blueprint.json");
+    manifestPath = resolveInside(root, ".ai/manifest.json");
+  } catch (error) {
+    errors.push(`Cannot resolve Gongxu project files: ${error.message}`);
+    process.stdout.write(`${JSON.stringify({ ok: false, errors, warnings, drift }, null, 2)}\n`);
+    process.exit(1);
+  }
   if (!existsSync(blueprintPath)) errors.push("Missing .ai/blueprint.json.");
   if (!existsSync(manifestPath)) errors.push("Missing .ai/manifest.json.");
   if (errors.length > 0) {
@@ -82,21 +158,16 @@ function main() {
   const validation = validateBlueprint(blueprint, root);
   errors.push(...validation.errors);
   warnings.push(...validation.warnings);
-  if (manifest.schemaVersion !== SCHEMA_VERSION) errors.push(`Manifest schemaVersion must equal ${SCHEMA_VERSION}.`);
-  if (manifest.generator?.name !== GENERATOR_NAME) errors.push("Manifest generator is not Gongxu.");
-  if (typeof manifest.generator?.version !== "string") errors.push("Manifest generator version is missing.");
-  if (typeof manifest.generatedAt !== "string" || Number.isNaN(Date.parse(manifest.generatedAt))) {
-    errors.push("Manifest generatedAt must be an ISO timestamp.");
-  }
-  if (manifest.projectId !== blueprint.project?.id) errors.push("Manifest projectId does not match the blueprint.");
-  if (JSON.stringify(manifest.adapters) !== JSON.stringify(blueprint.adapters)) errors.push("Manifest adapters do not match the blueprint.");
-  if (!Array.isArray(manifest.managedFiles)) errors.push("Manifest managedFiles must be an array.");
+  validateManifestContract(manifest, blueprint, errors);
 
   const validManifestEntries = [];
   const seenManifestPaths = new Set();
   const rawManifestEntries = Array.isArray(manifest.managedFiles) ? manifest.managedFiles : [];
   for (const [index, entry] of rawManifestEntries.entries()) {
     const path = `manifest.managedFiles[${index}]`;
+    if (!checkObjectShape(entry, path, ["path", "ownership", "sha256"], ["path", "ownership", "sha256"], errors)) {
+      continue;
+    }
     if (!entry || typeof entry.path !== "string" || !new Set(["file", "region"]).has(entry.ownership) || !/^[a-f0-9]{64}$/.test(entry.sha256)) {
       errors.push(`${path} is invalid.`);
       continue;
@@ -142,8 +213,15 @@ function main() {
     if (entry.sha256 !== expectedHash) {
       drift.push({ path: artifact.path, kind: "blueprint-drift", detail: "Manifest hash does not match the current blueprint output." });
     }
-    const absolute = resolveInside(root, artifact.path);
-    const current = readTextIfExists(absolute);
+    let current;
+    try {
+      const absolute = resolveInside(root, artifact.path);
+      current = readTextIfExists(absolute);
+    } catch (error) {
+      errors.push(`${artifact.path}: ${error.message}`);
+      manifestEntries.delete(artifact.path);
+      continue;
+    }
     if (current === null) {
       drift.push({ path: artifact.path, kind: "missing", detail: "Managed artifact is missing." });
       manifestEntries.delete(artifact.path);
@@ -169,7 +247,12 @@ function main() {
     drift.push({ path: stale.path, kind: "stale-manifest-entry", detail: "Manifest owns an artifact not produced by the current blueprint." });
   }
 
-  const agentsContent = readTextIfExists(resolveInside(root, "AGENTS.md"));
+  let agentsContent = null;
+  try {
+    agentsContent = readTextIfExists(resolveInside(root, "AGENTS.md"));
+  } catch (error) {
+    errors.push(`AGENTS.md: ${error.message}`);
+  }
   if (agentsContent) {
     try {
       const block = extractManagedBlock(agentsContent);
@@ -179,9 +262,13 @@ function main() {
     }
   }
 
-  const runnerPath = resolveInside(root, ".ai/verification/run.mjs");
-  if (existsSync(runnerPath) && (statSync(runnerPath).mode & 0o111) === 0) {
-    warnings.push(".ai/verification/run.mjs is not executable; it can still be run with node.");
+  try {
+    const runnerPath = resolveInside(root, ".ai/verification/run.mjs");
+    if (existsSync(runnerPath) && (statSync(runnerPath).mode & 0o111) === 0) {
+      warnings.push(".ai/verification/run.mjs is not executable; it can still be run with node.");
+    }
+  } catch (error) {
+    errors.push(`.ai/verification/run.mjs: ${error.message}`);
   }
 
   const driftErrors = options.allowDrift ? [] : drift.map((item) => `${item.path}: ${item.detail}`);

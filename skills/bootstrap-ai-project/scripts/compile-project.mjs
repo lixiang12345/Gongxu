@@ -12,7 +12,13 @@ import {
   sha256,
   writeAtomic,
 } from "./lib/files.mjs";
-import { GENERATOR_NAME, GENERATOR_VERSION, SCHEMA_VERSION, validateBlueprint } from "./lib/model.mjs";
+import {
+  GENERATOR_NAME,
+  GENERATOR_VERSION,
+  HUMAN_OWNED_PATHS,
+  SCHEMA_VERSION,
+  validateBlueprint,
+} from "./lib/model.mjs";
 import { renderArtifacts } from "./lib/render.mjs";
 
 function usage() {
@@ -191,7 +197,7 @@ function buildManifest(blueprint, rendered, generatedAt) {
     sourceRevision: blueprint.evidence.sourceRevision,
     adapters: blueprint.adapters,
     managedFiles,
-    humanOwnedPaths: [".ai/blueprint.json", ".ai/architecture/decisions/", ".ai/memory/"],
+    humanOwnedPaths: [...HUMAN_OWNED_PATHS],
   };
 }
 
