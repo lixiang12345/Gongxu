@@ -40,8 +40,17 @@ ln -s /absolute/path/to/gongxu/skills/bootstrap-ai-project \
   ~/.agents/skills/bootstrap-ai-project
 ```
 
-Codex also supports installation from a hosted repository through
-`$skill-installer`. Once the skill is discoverable, invoke it from the target
+Codex also supports installation from another repository through
+[`$skill-installer`](https://learn.chatgpt.com/docs/build-skills). Ask it to
+install this repository's skill directory:
+
+```text
+$skill-installer Install bootstrap-ai-project from
+https://github.com/lixiang12345/Gongxu/tree/main/skills/bootstrap-ai-project
+```
+
+Codex detects newly installed skills automatically; restart Codex if it does
+not appear. Once the skill is discoverable, invoke it from the target
 repository:
 
 ```text
