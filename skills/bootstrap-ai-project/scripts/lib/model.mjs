@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, realpathSync, statSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { resolve, sep } from "node:path";
 
 export const GENERATOR_NAME = "gongxu";
@@ -118,6 +118,67 @@ function currentGitRevision(root) {
   } catch {
     return null;
   }
+}
+
+function unquoteCommand(value) {
+  const trimmed = value.trim();
+  if (trimmed.length < 2 || trimmed[0] !== trimmed.at(-1) || !new Set(["\"", "'"]).has(trimmed[0])) {
+    return trimmed;
+  }
+  if (trimmed[0] === "\"") {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (typeof parsed === "string") return parsed;
+    } catch {
+      return trimmed.slice(1, -1);
+    }
+  }
+  return trimmed.slice(1, -1).replaceAll("''", "'");
+}
+
+function commandFromLine(line) {
+  const run = line.match(/^\s*(?:-\s+)?run:\s*(.*?)\s*$/);
+  const blockScalar = run?.[1].replace(/\s+#.*$/, "").trim();
+  if (blockScalar && /^[|>][0-9+-]*$/.test(blockScalar)) return null;
+  return unquoteCommand(run ? run[1] : line);
+}
+
+function jsonPointerSegments(pointer) {
+  if (pointer.startsWith("/")) {
+    const segments = pointer.slice(1).split("/");
+    if (segments.some((segment) => /~(?:[^01]|$)/.test(segment))) return null;
+    return segments.map((segment) => segment.replaceAll("~1", "/").replaceAll("~0", "~"));
+  }
+  return pointer.split(".");
+}
+
+function commandAtFilePointer(root, relativePath, pointer) {
+  let content;
+  try {
+    content = readFileSync(resolve(root, relativePath), "utf8");
+  } catch {
+    return null;
+  }
+
+  const linePointer = pointer.match(/^line:([1-9][0-9]*)$/);
+  if (linePointer) {
+    const line = content.split(/\r?\n/)[Number(linePointer[1]) - 1];
+    return line === undefined ? null : commandFromLine(line);
+  }
+
+  let value;
+  try {
+    value = JSON.parse(content);
+  } catch {
+    return null;
+  }
+  const segments = jsonPointerSegments(pointer);
+  if (segments === null) return null;
+  for (const segment of segments) {
+    if ((!isObject(value) && !Array.isArray(value)) || !Object.hasOwn(value, segment)) return null;
+    value = value[segment];
+  }
+  return typeof value === "string" ? value.trim() : null;
 }
 
 function checkUniqueIds(items, path, errors) {
@@ -341,7 +402,7 @@ function validateArchitecture(architecture, root, facts, errors) {
   }
 }
 
-function validateChecks(checks, root, answerIds, errors) {
+function validateChecks(checks, root, answers, errors) {
   if (!Array.isArray(checks)) {
     errors.push("verification must be an array.");
     return new Map();
@@ -371,13 +432,27 @@ function validateChecks(checks, root, answerIds, errors) {
       if (!new Set(["file", "interview", "existing-config"]).has(check.source.kind)) {
         errors.push(`${path}.source.kind is invalid.`);
       } else if (check.source.kind === "file" || check.source.kind === "existing-config") {
-        if (!nonEmpty(check.source.path) || !pathExists(root, check.source.path)) {
+        const sourceExists = nonEmpty(check.source.path) && pathExists(root, check.source.path, "file");
+        if (!sourceExists) {
           errors.push(`${path}.source.path does not exist: ${check.source.path ?? "<missing>"}`);
+        }
+        if (!nonEmpty(check.source.pointer)) {
+          errors.push(`${path}.source.pointer must identify an exact line or JSON value.`);
+        } else if (sourceExists && nonEmpty(check.command)) {
+          const sourcedCommand = commandAtFilePointer(root, check.source.path, check.source.pointer);
+          if (sourcedCommand !== check.command.trim()) {
+            errors.push(`${path}.source.pointer does not resolve to the exact command ${JSON.stringify(check.command.trim())}.`);
+          }
         }
       } else if (!nonEmpty(check.source.path)) {
         errors.push(`${path}.source.path must identify the confirming interview answer.`);
-      } else if (!answerIds.has(check.source.path)) {
+      } else if (!answers.has(check.source.path)) {
         errors.push(`${path}.source.path references unknown interview answer: ${check.source.path}`);
+      } else if (nonEmpty(check.command)) {
+        const answer = answers.get(check.source.path)?.answer;
+        if (typeof answer !== "string" || answer.trim() !== check.command.trim()) {
+          errors.push(`${path}.source interview answer must exactly equal the command ${JSON.stringify(check.command.trim())}.`);
+        }
       }
     }
   }
@@ -521,13 +596,13 @@ export function validateBlueprint(blueprint, root) {
   validateReservedMarkers(blueprint, "blueprint", errors);
   if (blueprint.schemaVersion !== SCHEMA_VERSION) errors.push(`schemaVersion must equal ${SCHEMA_VERSION}.`);
   validateProject(blueprint.project, errors);
-  const answerIds = new Set(
+  const answers = new Map(
     (Array.isArray(blueprint.evidence?.answers) ? blueprint.evidence.answers : [])
-      .map((answer) => answer?.id)
-      .filter(validId)
+      .filter((answer) => validId(answer?.id))
+      .map((answer) => [answer.id, answer])
   );
-  const facts = validateEvidence(blueprint.evidence, root, answerIds, errors, warnings);
-  const checks = validateChecks(blueprint.verification, root, answerIds, errors);
+  const facts = validateEvidence(blueprint.evidence, root, answers, errors, warnings);
+  const checks = validateChecks(blueprint.verification, root, answers, errors);
   validateArchitecture(blueprint.architecture, root, facts, errors);
   validateRules(blueprint.rules, facts, checks, errors);
   validateSkills(blueprint.skills, root, checks, errors, warnings);

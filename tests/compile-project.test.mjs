@@ -294,6 +294,16 @@ test("verification runner refuses a cwd redirected outside the repository", (t) 
   const blueprint = loadBlueprint();
   blueprint.verification[0].cwd = "apps/web";
   blueprint.verification[0].command = "node -e \"require('node:fs').writeFileSync('executed.txt','yes')\"";
+  blueprint.evidence.answers.push({
+    id: "answer-containment-test-command",
+    question: "What exact test command exercises working-directory containment?",
+    answer: blueprint.verification[0].command,
+  });
+  blueprint.verification[0].source = {
+    kind: "interview",
+    path: "answer-containment-test-command",
+    note: "The test fixture explicitly confirms this exact containment probe.",
+  };
   const blueprintPath = writeBlueprint(fixture, blueprint);
   const compile = compileFixture(fixture, blueprintPath);
   assert.equal(compile.status, 0, compile.stderr || compile.stdout);

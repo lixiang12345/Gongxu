@@ -55,6 +55,15 @@ test("blueprint schema rejects empty source revisions", () => {
   assert.equal(sourceRevision.minLength, 1);
 });
 
+test("blueprint schema requires pointers for file-backed verification sources", () => {
+  const schema = JSON.parse(readFileSync(join(repositoryRoot, "skills/bootstrap-ai-project/assets/blueprint.schema.json"), "utf8"));
+  const pointerCondition = schema.$defs.checkSource.allOf[0];
+
+  assert.deepEqual(pointerCondition.if.properties.kind.enum, ["file", "existing-config"]);
+  assert.deepEqual(pointerCondition.then.required, ["pointer"]);
+  assert.deepEqual(pointerCondition.then.properties.pointer, { $ref: "#/$defs/nonEmpty" });
+});
+
 test("managed artifact contract excludes canonical and human-owned paths", () => {
   assert.equal(managedOwnershipForPath("AGENTS.md"), "region");
   assert.equal(managedOwnershipForPath(".ai/rules/security.md"), "file");
@@ -145,6 +154,97 @@ test("validator links command and interview evidence to concrete provenance", (t
   assert.ok(result.errors.some((error) => error.includes("pointer must reference an evidence.answers id")));
   assert.ok(result.errors.some((error) => error.includes("pointer must record the observed command")));
   assert.ok(result.errors.some((error) => error.includes("source.path references unknown interview answer")));
+});
+
+test("validator resolves file provenance to the exact verification command", (t) => {
+  const fixture = createFixture("node-monorepo");
+  t.after(() => cleanupFixture(fixture));
+
+  const composed = validateMutation(fixture, (blueprint) => {
+    blueprint.verification[0].source = {
+      kind: "file",
+      path: "package.json",
+      pointer: "scripts.test",
+      note: "This script does not literally contain the package-manager invocation."
+    };
+  });
+  assert.ok(composed.errors.some((error) => error.includes("does not resolve to the exact command \"npm test\"")));
+
+  const wrongLine = validateMutation(fixture, (blueprint) => {
+    blueprint.verification[0].source.pointer = "line:12";
+  });
+  assert.ok(wrongLine.errors.some((error) => error.includes("does not resolve to the exact command \"npm test\"")));
+
+  const missingPointer = validateMutation(fixture, (blueprint) => {
+    delete blueprint.verification[0].source.pointer;
+  });
+  assert.ok(missingPointer.errors.some((error) => error.includes("must identify an exact line or JSON value")));
+
+  appendFileSync(join(fixture.root, ".github/workflows/ci.yml"), "      - run: |\n          npm test\n");
+  const blockHeader = validateMutation(fixture, (blueprint) => {
+    blueprint.verification[0].command = "|";
+    blueprint.verification[0].source.pointer = "line:14";
+  });
+  assert.ok(blockHeader.errors.some((error) => error.includes("does not resolve to the exact command \"|\"")));
+
+  const scriptBody = validateMutation(fixture, (blueprint) => {
+    blueprint.verification[0].command = "node --test apps/web/specs/*.fixture.mjs services/api/specs/*.fixture.mjs";
+    blueprint.verification[0].source = {
+      kind: "existing-config",
+      path: "package.json",
+      pointer: "/scripts/test",
+      note: "The root package manifest contains this exact script body."
+    };
+  });
+  assert.deepEqual(scriptBody, { errors: [], warnings: [] });
+});
+
+test("validator requires interview provenance to confirm the exact verification command", (t) => {
+  const fixture = createFixture("node-monorepo");
+  t.after(() => cleanupFixture(fixture));
+
+  const mismatch = validateMutation(fixture, (blueprint) => {
+    blueprint.evidence.answers.push({
+      id: "answer-project-test-command",
+      question: "What exact command must run the project tests?",
+      answer: "Use the root test script."
+    });
+    blueprint.verification[0].source = {
+      kind: "interview",
+      path: "answer-project-test-command",
+      note: "The project owner confirmed the command."
+    };
+  });
+  assert.ok(mismatch.errors.some((error) => error.includes("interview answer must exactly equal the command \"npm test\"")));
+
+  const malformed = validateMutation(fixture, (blueprint) => {
+    blueprint.evidence.answers.push({
+      id: "answer-project-test-command",
+      question: "What exact command must run the project tests?",
+      answer: 42
+    });
+    blueprint.verification[0].source = {
+      kind: "interview",
+      path: "answer-project-test-command",
+      note: "The answer has an invalid value."
+    };
+  });
+  assert.ok(malformed.errors.some((error) => error.includes("evidence.answers[1] needs question and answer")));
+  assert.ok(malformed.errors.some((error) => error.includes("interview answer must exactly equal the command \"npm test\"")));
+
+  const exact = validateMutation(fixture, (blueprint) => {
+    blueprint.evidence.answers.push({
+      id: "answer-project-test-command",
+      question: "What exact command must run the project tests?",
+      answer: "npm test"
+    });
+    blueprint.verification[0].source = {
+      kind: "interview",
+      path: "answer-project-test-command",
+      note: "The project owner confirmed the command."
+    };
+  });
+  assert.deepEqual(exact, { errors: [], warnings: [] });
 });
 
 test("validator rejects unsupported fields and malformed nested values without crashing", (t) => {

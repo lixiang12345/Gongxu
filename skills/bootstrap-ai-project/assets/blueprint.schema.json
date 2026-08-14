@@ -274,7 +274,19 @@
         "path": { "type": "string" },
         "pointer": { "type": "string" },
         "note": { "$ref": "#/$defs/nonEmpty" }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "kind": { "enum": ["file", "existing-config"] } },
+            "required": ["kind"]
+          },
+          "then": {
+            "required": ["pointer"],
+            "properties": { "pointer": { "$ref": "#/$defs/nonEmpty" } }
+          }
+        }
+      ]
     },
     "check": {
       "type": "object",

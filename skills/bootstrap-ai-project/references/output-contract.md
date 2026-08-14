@@ -161,6 +161,14 @@ Each verification check contains:
 Do not invent commands. A command's presence is different from a passing run;
 the generated runner records execution status separately.
 
+For `file` and `existing-config` provenance, `source.pointer` is required and
+must resolve to the exact command. Use `line:<1-based-line-number>` for a
+command-bearing line, a dotted key such as `scripts.test` for JSON, or an RFC
+6901 JSON Pointer such as `/scripts/test`. A package script value proves its
+script body, not a package-manager invocation assembled from other signals.
+For `interview` provenance, `source.path` references an `evidence.answers` entry
+whose trimmed answer is exactly the confirmed command.
+
 Commands must be single-line, contain no NUL bytes, and use existing working
 directories.
 

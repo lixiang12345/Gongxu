@@ -64,9 +64,9 @@
         "evidence": [
           {
             "kind": "file",
-            "path": "package.json",
-            "pointer": "scripts.test",
-            "note": "The root manifest defines the project test command."
+            "path": ".github/workflows/ci.yml",
+            "pointer": "line:11",
+            "note": "CI runs the exact project test command."
           }
         ]
       },
@@ -287,9 +287,9 @@
       "required": true,
       "source": {
         "kind": "file",
-        "path": "package.json",
-        "pointer": "scripts.test",
-        "note": "The root package script runs both workspace test suites."
+        "path": ".github/workflows/ci.yml",
+        "pointer": "line:11",
+        "note": "CI runs the exact project test command."
       }
     }
   ],
