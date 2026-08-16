@@ -81,6 +81,19 @@ Initial setup is moderate because the repository's real boundaries must be
 confirmed. Repeat runs are shorter; they are usually a recompile and validation
 pass, unless managed drift or a changed blueprint needs an explicit decision.
 
+For repositories that are not currently inside an Agent Skills host, the
+repository also includes a small standalone bootstrap command:
+
+```bash
+npm run bootstrap -- --root /absolute/path/to/target
+```
+
+It asks for the project purpose and primary users, uses only verification
+commands observed in the target's CI, previews the blueprint, and waits for
+approval before writing. Use `--yes` for accepted defaults or `--dry-run` to
+preview without changing the target. Existing Gongxu state is intentionally
+left to the richer Agent Skill update flow.
+
 ## Build The Plugin
 
 Create a distributable Codex Plugin without duplicating the canonical Skill in

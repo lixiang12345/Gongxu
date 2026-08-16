@@ -8,6 +8,7 @@
     "node": ">=22.12.0"
   },
   "scripts": {
+    "bootstrap": "node scripts/bootstrap-project.mjs",
     "test": "node --test",
     "inspect:self": "node skills/bootstrap-ai-project/scripts/inspect-project.mjs .",
     "package:plugin": "node scripts/package-plugin.mjs",

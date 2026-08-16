@@ -9,6 +9,7 @@ export const skillRoot = join(repositoryRoot, "skills/bootstrap-ai-project");
 export const inspectScript = join(skillRoot, "scripts/inspect-project.mjs");
 export const compileScript = join(skillRoot, "scripts/compile-project.mjs");
 export const validateScript = join(skillRoot, "scripts/validate-project.mjs");
+export const bootstrapScript = join(repositoryRoot, "scripts/bootstrap-project.mjs");
 export const packagePluginScript = join(repositoryRoot, "scripts/package-plugin.mjs");
 
 export function createFixture(name) {
@@ -38,6 +39,7 @@ export function runNode(script, args = [], options = {}) {
     encoding: "utf8",
     env: { ...process.env, ...(options.env || {}) },
     timeout: options.timeout || 30_000,
+    input: options.input,
   });
   return {
     status: result.status,
