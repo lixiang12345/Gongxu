@@ -22,6 +22,7 @@ import {
   cleanupFixture,
   compileFixture,
   createFixture,
+  inspectScript,
   loadBlueprint,
   parseJsonOutput,
   readFixtureFile,
@@ -48,10 +49,14 @@ function initialize(t) {
   return { fixture, blueprintPath, summary: parseJsonOutput(result) };
 }
 
-test("compiler previews, initializes, validates, and exposes thin adapters", (t) => {
+test("brownfield flow inspects, previews, initializes, validates, and exposes thin adapters", (t) => {
   const fixture = createFixture("node-monorepo");
   t.after(() => cleanupFixture(fixture));
   const blueprintPath = writeBlueprint(fixture, loadBlueprint());
+
+  const inspection = runNode(inspectScript, [fixture.root]);
+  assert.equal(inspection.status, 0, inspection.stderr || inspection.stdout);
+  assert.equal(parseJsonOutput(inspection).detected.repositoryShape, "monorepo");
 
   const preview = compileFixture(fixture, blueprintPath, ["--dry-run"]);
   assert.equal(preview.status, 0, preview.stderr);

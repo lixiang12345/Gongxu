@@ -36,3 +36,23 @@ blueprint.
 - User edits inside managed files are detected before overwrite.
 - A repository with invalid or incomplete output fails with actionable errors.
 
+## Definition Of Complete
+
+For this milestone, a release is complete only when all of the following are
+true:
+
+1. A single-project repository and an explicitly selected nested project in a
+   monorepo can be inspected without writing first.
+2. The adaptive interview asks only consequential questions, and the approved
+   blueprint distinguishes observed, confirmed, inferred, and unknown facts.
+3. A dry-run previews the generated contract before compilation, then produces
+   `.ai/blueprint.json`, deterministic project views, verification files, and
+   thin Codex and Claude Code adapters.
+4. `npm test`, `npm run validate:skill`, and `npm run package:plugin` pass, and
+   the smallest brownfield fixture completes inspect/compile/validate and a
+   generated verification-runner check.
+5. Recompilation is idempotent; user-owned content survives; managed drift,
+   unsafe paths, and failed writes are rejected or rolled back as specified.
+
+This milestone does not include chat memory, task leases, issue tracking,
+multi-agent coordination, or a hosted control plane.

@@ -24,6 +24,9 @@ The generated system follows three rules:
 This repository is under active development. The current milestone is a
 verified brownfield initialization workflow for Codex and Claude Code.
 
+The release contract for this milestone is documented in
+[`docs/product/vision.md`](docs/product/vision.md#definition-of-complete).
+
 ## Use The Skill
 
 Requirements:
