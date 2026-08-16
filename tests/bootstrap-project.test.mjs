@@ -44,3 +44,17 @@ test("bootstrap CLI is interactive and does not write during dry-run", (t) => {
   assert.equal(existsSync(join(fixture.root, ".ai")), false);
   assert.match(result.stdout, /fixture-workspace/);
 });
+
+test("bootstrap CLI writes only after interactive approval", (t) => {
+  const fixture = createFixture("node-monorepo");
+  t.after(() => cleanupFixture(fixture));
+
+  const result = runNode(bootstrapScript, ["--root", fixture.root], {
+    input: "Fixture workspace for operators.\nFixture maintainers\nworkspace operations\ny\n",
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /Bootstrap complete\./);
+  assert.ok(existsSync(join(fixture.root, ".ai/blueprint.json")));
+  const blueprint = JSON.parse(readFileSync(join(fixture.root, ".ai/blueprint.json"), "utf8"));
+  assert.deepEqual(blueprint.project.domains, ["workspace operations"]);
+});
