@@ -67,6 +67,20 @@ blueprint, and then compile and validate the generated system. It will not
 adopt an existing unowned `.ai/` directory or overwrite managed drift without
 an exact `--force-path` approved by the user.
 
+### What a Run Feels Like
+
+The normal path is one skill invocation plus a few consequential answers:
+
+1. Gongxu scans the target repository without writing.
+2. The agent asks only questions that change the generated project contract.
+3. You review the blueprint summary and approve the first write.
+4. Gongxu generates `.ai/`, adapters, and a verification runner.
+5. Validation and the repository's exact checks run before completion is claimed.
+
+Initial setup is moderate because the repository's real boundaries must be
+confirmed. Repeat runs are shorter; they are usually a recompile and validation
+pass, unless managed drift or a changed blueprint needs an explicit decision.
+
 ## Build The Plugin
 
 Create a distributable Codex Plugin without duplicating the canonical Skill in
