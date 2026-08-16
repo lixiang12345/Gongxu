@@ -37,7 +37,7 @@ test("bootstrap CLI is interactive and does not write during dry-run", (t) => {
   t.after(() => cleanupFixture(fixture));
 
   const result = runNode(bootstrapScript, ["--root", fixture.root, "--dry-run"], {
-    input: "Fixture workspace for operators.\nFixture maintainers\n",
+    input: "Fixture workspace for operators.\nFixture maintainers\nworkspace operations\n",
   });
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.match(result.stdout, /Blueprint preview/);

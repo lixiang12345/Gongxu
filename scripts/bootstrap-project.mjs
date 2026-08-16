@@ -94,12 +94,6 @@ function readPackageSummary(root, report) {
   }
 }
 
-function defaultDomain(report) {
-  if (report.detected.frameworks?.length > 0) return report.detected.frameworks.map((item) => item.name).join(", ");
-  if (report.detected.languages?.length > 0) return `${report.detected.languages[0].name} software`;
-  return "software project";
-}
-
 function selectAdapters(value) {
   const adapters = parseList(value || "codex,claude");
   if (adapters.length === 0) return [];
@@ -281,7 +275,7 @@ async function collectInput(options, report) {
   const defaults = {
     summary: packageInfo.summary || `A ${report.detected.repositoryShape === "monorepo" ? "monorepo" : "software project"} named ${packageInfo.name || basename(options.root)}.`,
     primaryUsers: ["repository maintainers"],
-    domains: defaultDomain(report) ? [defaultDomain(report)] : [],
+    domains: [],
     assumptions: [],
   };
   const answers = [];
@@ -298,6 +292,9 @@ async function collectInput(options, report) {
     const users = await prompt.ask("Primary users (comma-separated)", defaults.primaryUsers.join(", "));
     defaults.primaryUsers = parseList(users);
     answers.push(answer("answer-primary-users", "Who are the primary users?", defaults.primaryUsers.join(", ")));
+    const domain = await prompt.ask("Project domain (optional, comma-separated)", "");
+    defaults.domains = parseList(domain);
+    if (defaults.domains.length > 0) answers.push(answer("answer-project-domain", "What domain does this project serve?", defaults.domains.join(", ")));
     if (options.yes) defaults.assumptions.push("Accepted the CLI defaults for project purpose and primary users.");
     if (!packageInfo.summary && options.yes) defaults.assumptions.push("The project purpose was not documented in package metadata; the CLI used a repository-shape summary.");
     if (!options.adaptersProvided) {

@@ -88,11 +88,11 @@ repository also includes a small standalone bootstrap command:
 npm run bootstrap -- --root /absolute/path/to/target
 ```
 
-It asks for the project purpose and primary users, uses only verification
-commands observed in the target's CI, previews the blueprint, and waits for
-approval before writing. Use `--yes` for accepted defaults or `--dry-run` to
-preview without changing the target. Existing Gongxu state is intentionally
-left to the richer Agent Skill update flow.
+It asks for the project purpose, primary users, and optional domain, uses only
+verification commands observed in the target's CI, previews the blueprint, and
+waits for approval before writing. Use `--yes` for accepted defaults or
+`--dry-run` to preview without changing the target. Existing Gongxu state is
+intentionally left to the richer Agent Skill update flow.
 
 ## Build The Plugin
 
